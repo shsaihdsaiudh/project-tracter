@@ -15,12 +15,12 @@ interface ToastItem {
 }
 
 interface ToastCtx {
-  showToast: (message: string, type: ToastType, duration?: number) => void;
+  showToast: (message: string, type: ToastType, duration?: number) => number;
   removeToast: (id: number) => void;
 }
 
 const ToastContext = createContext<ToastCtx>({
-  showToast: () => {},
+  showToast: () => -1,
   removeToast: () => {},
 });
 
@@ -38,6 +38,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           setToasts((prev) => prev.filter((t) => t.id !== id));
         }, duration);
       }
+      return id;
     },
     [],
   );

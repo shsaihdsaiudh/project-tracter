@@ -9,7 +9,7 @@ interface Props {
 }
 
 export function ReportModal({ open, onClose }: Props) {
-  const { showToast } = useToast();
+  const { showToast, removeToast } = useToast();
 
   useEffect(() => {
     if (open) {
@@ -24,11 +24,13 @@ export function ReportModal({ open, onClose }: Props) {
 
   const handleGenerate = async (hours: number) => {
     onClose();
-    showToast("正在生成日报，请稍候...", "loading", 0);
+    const loadingId = showToast("正在生成日报，请稍候...", "loading", 0);
     try {
       await generateReport(hours);
+      removeToast(loadingId);
       showToast("日报已生成", "success");
     } catch (err: any) {
+      removeToast(loadingId);
       showToast(err.message || "生成日报失败", "error");
     }
   };
