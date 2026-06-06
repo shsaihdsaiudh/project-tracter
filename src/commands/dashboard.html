@@ -346,6 +346,60 @@
       pointer-events: none;
       opacity: 0.6;
     }
+
+    /* Toast notification */
+    .toast-container {
+      position: fixed;
+      top: 1.5rem;
+      right: 1.5rem;
+      z-index: 300;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .toast {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.75rem 1.1rem;
+      background: #ffffff;
+      border-radius: 10px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #1d1d1f;
+      animation: toastIn 0.25s ease;
+      min-width: 260px;
+    }
+    .toast.success { border-left: 3px solid #34c759; }
+    .toast.error   { border-left: 3px solid #ff3b30; }
+    .toast.loading { border-left: 3px solid #007aff; }
+    @keyframes toastIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to   { transform: translateX(0); opacity: 1; }
+    }
+    .toast-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #e8e8ed;
+      border-top: 2px solid #007aff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .toast-close {
+      margin-left: auto;
+      background: none;
+      border: none;
+      color: #aeaeb2;
+      cursor: pointer;
+      font-size: 0.9rem;
+      padding: 0;
+      flex-shrink: 0;
+    }
+    .toast-close:hover { color: #515154; }
     .live-dot {
       width: 8px;
       height: 8px;
@@ -576,6 +630,7 @@
   </style>
 </head>
 <body>
+  <div class="toast-container" id="toastContainer"></div>
   <aside class="sidebar">
     <div class="sidebar-header">📋 追踪项目</div>
     <div class="sidebar-list" id="sidebarList"></div>
@@ -873,10 +928,48 @@
         });
     }
 
+    // ── Toast notifications ────────────────────────────
+
+    function showToast(message, type, duration) {
+      var container = document.getElementById('toastContainer');
+      var toast = document.createElement('div');
+      toast.className = 'toast ' + (type || '');
+
+      if (type === 'loading') {
+        toast.innerHTML =
+          '<span class="toast-spinner"></span>' +
+          '<span>' + message + '</span>';
+      } else {
+        toast.innerHTML =
+          '<span>' + (type === 'error' ? '❌ ' : '✅ ') + '</span>' +
+          '<span>' + message + '</span>' +
+          '<button class="toast-close">&times;</button>';
+      }
+
+      container.appendChild(toast);
+
+      // Bind close button
+      var closeBtn = toast.querySelector('.toast-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', function() { toast.remove(); });
+      }
+
+      // Auto-dismiss
+      if (duration) {
+        setTimeout(function() { toast.remove(); }, duration);
+      }
+
+      return toast;
+    }
+
+    // ── Report Generation ──────────────────────────────
+
     function startReportGeneration(hours) {
       var btn = document.getElementById('reportBtn');
       btn.classList.add('loading');
       btn.textContent = '⏳ 生成中...';
+
+      var loadingToast = showToast('正在生成日报，请稍候...', 'loading');
 
       fetch('/api/report', {
         method: 'POST',
@@ -885,46 +978,23 @@
       })
         .then(function(r) { return r.json(); })
         .then(function(data) {
+          // Remove loading toast
+          loadingToast.remove();
+
           if (data.error) {
-            showReportResult('❌ 生成失败', data.error, true);
+            showToast(data.error, 'error', 5000);
           } else {
-            showReportResult('✅ 日报已生成', '文件: ' + data.filePath + '\n\n' + data.content);
+            showToast('日报已生成 → Obsidian Vault/每日工作记录/', 'success', 4000);
           }
         })
         .catch(function(err) {
-          showReportResult('❌ 请求失败', err.message || '网络错误', true);
+          loadingToast.remove();
+          showToast(err.message || '网络请求失败', 'error', 5000);
         })
         .finally(function() {
           btn.classList.remove('loading');
           btn.textContent = '📝 生成日报';
         });
-    }
-
-    function showReportResult(title, content, isError) {
-      var overlay = document.createElement('div');
-      overlay.className = 'modal-overlay';
-      overlay.onclick = function(e) {
-        if (e.target === overlay) overlay.remove();
-      };
-
-      var escapedContent = esc(content)
-        .replace(/\n/g, '<br>')
-        .replace(/## /g, '<strong>')
-        .replace(/- /g, '• ');
-
-      overlay.innerHTML =
-        '<div class="modal-box" style="max-width: 600px; max-height: 80vh; overflow-y: auto;">' +
-          '<h3 style="' + (isError ? 'color:#ff3b30;' : 'color:#34c759;') + '">' + esc(title) + '</h3>' +
-          '<div style="margin:1rem 0; font-size:0.82rem; line-height:1.6; white-space:pre-wrap; color:#515154;">' + escapedContent + '</div>' +
-          '<div class="modal-actions">' +
-            '<button class="modal-btn primary" id="reportClose">关闭</button>' +
-          '</div>' +
-        '</div>';
-
-      document.body.appendChild(overlay);
-
-      var closeBtn = overlay.querySelector('#reportClose');
-      closeBtn.addEventListener('click', function() { overlay.remove(); });
     }
 
     document.getElementById('reportBtn').addEventListener('click', showReportOptions);
