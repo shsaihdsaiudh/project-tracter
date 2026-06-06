@@ -13,9 +13,56 @@ export const CLAUDE_VARIANTS: Record<string, string> = {
 
 export const DEFAULT_CLAUDE_DIRS = ['claude'];
 
-/** Default output path for daily reports — Obsidian Vault */
+/**
+ * Try to auto-detect Obsidian vault path from Obsidian's own config.
+ * Falls back to sensible defaults per platform.
+ */
+function detectObsidianVault(): string | null {
+  const platform = process.platform;
+  let obsidianConfigPath: string;
+
+  if (platform === 'darwin') {
+    obsidianConfigPath = resolve(homedir(), 'Library', 'Application Support', 'obsidian', 'obsidian.json');
+  } else if (platform === 'win32') {
+    const appData = process.env.APPDATA || resolve(homedir(), 'AppData', 'Roaming');
+    obsidianConfigPath = resolve(appData, 'obsidian', 'obsidian.json');
+  } else {
+    // Linux / other
+    const xdgConfig = process.env.XDG_CONFIG_HOME || resolve(homedir(), '.config');
+    obsidianConfigPath = resolve(xdgConfig, 'obsidian', 'obsidian.json');
+  }
+
+  try {
+    const raw = readFileSync(obsidianConfigPath, 'utf-8');
+    const cfg = JSON.parse(raw);
+    const vaults: Record<string, { path: string; open?: boolean }> = cfg.vaults || {};
+    // Prefer the currently-open vault, otherwise first one found
+    const openVault = Object.values(vaults).find((v) => v.open);
+    const firstVault = Object.values(vaults)[0];
+    const vault = openVault || firstVault;
+    if (vault?.path) {
+      return resolve(vault.path, '每日工作记录');
+    }
+  } catch {
+    // Obsidian config not found or unreadable
+  }
+  return null;
+}
+
+/** Default output path for daily reports */
 export function getDefaultReportPath(): string {
-  return resolve(homedir(), 'Documents', 'Obsidian Vault', '每日工作记录');
+  // Try auto-detection first
+  const detected = detectObsidianVault();
+  if (detected) return detected;
+
+  // Fallback: platform-appropriate default
+  const platform = process.platform;
+  if (platform === 'darwin') {
+    return resolve(homedir(), 'Documents', 'Obsidian Vault', '每日工作记录');
+  } else if (platform === 'win32') {
+    return resolve(homedir(), 'Documents', 'Obsidian', '每日工作记录');
+  }
+  return resolve(homedir(), 'project-tracker-reports');
 }
 
 export interface ProjectEntry {

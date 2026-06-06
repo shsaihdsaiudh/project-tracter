@@ -1,31 +1,49 @@
 import chalk from 'chalk';
-import { setProjectClaudeDirs, CLAUDE_VARIANTS, listProjects } from '../lib/config.js';
+import { setProjectClaudeDirs, CLAUDE_VARIANTS, listProjects, getReportOutputPath, setReportOutputPath, getDefaultReportPath } from '../lib/config.js';
 
-export function configCommand(opts: { claude?: string }): void {
-  // If no --claude flag, show current config for all projects
+export function configCommand(opts: { claude?: string; output?: string }): void {
+  // --output flag: set report output path
+  if (opts.output) {
+    setReportOutputPath(opts.output);
+    console.log(chalk.green('✓ 日报输出路径已更新为: ') + chalk.cyan(opts.output));
+    return;
+  }
+
+  // If no --claude flag, show current config
   if (!opts.claude) {
     const projects = listProjects();
+    const reportPath = getReportOutputPath();
+
     if (projects.length === 0) {
       console.log(chalk.yellow('没有已追踪的项目。'));
-      return;
+    } else {
+      const lines = projects.map((p) => {
+        const dirs = (p.claudeDirs || ['claude']).join(', ');
+        return `  ${chalk.cyan('📁 ' + p.name)}${chalk.gray('  →  追踪: ' + dirs)}`;
+      });
+
+      console.log(chalk.bold.white('当前项目的 Claude 目录配置：\n'));
+      console.log(chalk.dim('─'.repeat(56)));
+      console.log(lines.join('\n'));
+      console.log('');
     }
 
-    const lines = projects.map((p) => {
-      const dirs = (p.claudeDirs || ['claude']).join(', ');
-      return `  ${chalk.cyan('📁 ' + p.name)}${chalk.gray('  →  追踪: ' + dirs)}`;
-    });
-
-    console.log(chalk.bold.white('当前项目的 Claude 目录配置：\n'));
+    console.log(chalk.bold.white('日报输出路径：'));
     console.log(chalk.dim('─'.repeat(56)));
-    console.log(lines.join('\n'));
+    console.log(`  ${chalk.gray(reportPath)}`);
     console.log('');
     console.log(
       chalk.dim('使用 ') +
         chalk.cyan('pt config <项目名> --claude <目录列表>') +
-        chalk.dim(' 修改配置'),
+        chalk.dim(' 修改追踪的 Claude 变体'),
     );
     console.log(
-      chalk.dim('可用目录别名: ') +
+      chalk.dim('使用 ') +
+        chalk.cyan('pt config --output <路径>') +
+        chalk.dim(' 修改日报输出目录'),
+    );
+    console.log(
+      chalk.dim('可用变体: ') +
         Object.keys(CLAUDE_VARIANTS).map((k) => chalk.green(k)).join(', '),
     );
     return;

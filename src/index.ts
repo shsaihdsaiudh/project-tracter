@@ -87,8 +87,11 @@ program
   .description('查看或修改项目的 Claude 目录配置')
   .argument('[name]', '项目名称')
   .option('-c, --claude <dirs>', 'Claude 目录别名列表，逗号分隔 (如 claude,claude-internal)')
-  .action((name?: string, opts?: { claude?: string }) => {
-    if (name && opts?.claude) {
+  .option('-o, --output <path>', '设置日报输出目录')
+  .action((name?: string, opts?: { claude?: string; output?: string }) => {
+    if (opts?.output) {
+      configCommand(opts);
+    } else if (name && opts?.claude) {
       configSetCommand(name, opts.claude);
     } else {
       configCommand(opts || {});

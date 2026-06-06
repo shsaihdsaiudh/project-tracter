@@ -849,6 +849,12 @@
         .then(function(data) {
           if (data.path) {
             showVariantModal(data.path);
+          } else if (data.unsupported) {
+            // Non-macOS: fall back to manual path input
+            var manualPath = prompt('请输入项目文件夹的完整路径：');
+            if (manualPath && manualPath.trim()) {
+              showVariantModal(manualPath.trim());
+            }
           }
         })
         .catch(function() {})

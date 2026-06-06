@@ -404,8 +404,14 @@ export function startDashboard(opts: { port?: string; hours?: string }): void {
       return;
     }
 
-    // POST /api/browse — open native macOS folder picker
+    // POST /api/browse — open native folder picker (macOS) or return unsupported
     if (url === '/api/browse' && method === 'POST') {
+      if (process.platform !== 'darwin') {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ path: null, unsupported: true }));
+        return;
+      }
+
       exec(
         `osascript -e 'POSIX path of (choose folder with prompt "选择要追踪的项目文件夹")'`,
         (err, stdout) => {
