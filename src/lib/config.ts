@@ -13,6 +13,11 @@ export const CLAUDE_VARIANTS: Record<string, string> = {
 
 export const DEFAULT_CLAUDE_DIRS = ['claude'];
 
+/** Default output path for daily reports — Obsidian Vault */
+export function getDefaultReportPath(): string {
+  return resolve(homedir(), 'Documents', 'Obsidian Vault', '每日工作记录');
+}
+
 export interface ProjectEntry {
   name: string;
   path: string;
@@ -23,6 +28,8 @@ export interface ProjectEntry {
 
 export interface TrackerConfig {
   projects: ProjectEntry[];
+  /** Output directory for daily AI-generated reports */
+  reportOutputPath?: string;
 }
 
 const CONFIG_PATH = resolve(homedir(), '.project-tracker.json');
@@ -142,4 +149,21 @@ export function setProjectClaudeDirs(
 
 export function listProjects(): ProjectEntry[] {
   return readConfig().projects;
+}
+
+/**
+ * Get the report output path. Uses configured path or default Obsidian Vault.
+ */
+export function getReportOutputPath(): string {
+  const config = readConfig();
+  return config.reportOutputPath || getDefaultReportPath();
+}
+
+/**
+ * Set the report output path.
+ */
+export function setReportOutputPath(path: string): void {
+  const config = readConfig();
+  config.reportOutputPath = path;
+  writeConfig(config);
 }

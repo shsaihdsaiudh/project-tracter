@@ -1,9 +1,9 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { exec } from 'child_process';
-import { readFileSync } from 'fs';
+import { readFileSync, mkdirSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
-import { listProjects, addProject, removeProject, setProjectClaudeDirs, CLAUDE_VARIANTS } from '../lib/config.js';
+import { dirname, resolve, join } from 'path';
+import { listProjects, addProject, removeProject, setProjectClaudeDirs, CLAUDE_VARIANTS, getReportOutputPath } from '../lib/config.js';
 import { scanProject, isProjectActive } from '../lib/scanner.js';
 import { parseSession } from '../lib/parser.js';
 import { relativeTime } from '../lib/formatter.js';
@@ -40,6 +40,101 @@ interface ProjectItem {
 interface InitialPayload {
   projects: ProjectItem[];
   sections: ProjectSection[];
+}
+
+// ── AI Report ──────────────────────────────────────────
+
+const DEEPSEEK_API = 'https://api.deepseek.com/chat/completions';
+const DEEPSEEK_MODEL = 'deepseek-chat';
+
+interface ReportRequest {
+  hours: number;
+}
+
+function buildReportPrompt(sections: ProjectSection[], hours: number): string {
+  const timeLabel = hours >= 168 ? '本周' : hours >= 48 ? '最近 3 天' : hours >= 24 ? '昨天' : `最近 ${hours} 小时`;
+
+  let dataBlock = '';
+  for (const sec of sections) {
+    if (sec.sessions.length === 0) continue;
+    dataBlock += `\n## ${sec.name}\n`;
+    for (const s of sec.sessions) {
+      const time = s.relativeTime;
+      dataBlock += `\n### ${s.title}（${time}）\n`;
+      // Take first 300 chars of the last message to keep prompt reasonable
+      const msg = s.lastMessage.length > 300
+        ? s.lastMessage.substring(0, 300) + '...'
+        : s.lastMessage;
+      dataBlock += `用户最后的消息: ${msg}\n`;
+      dataBlock += `分支: ${s.branch}\n`;
+    }
+  }
+
+  return `你是一个开发工作日志助手。请根据以下用户与 AI 编程助手的对话记录，总结${timeLabel}的开发工作内容。
+
+格式要求：
+1. 按项目分组，每个项目一个二级标题
+2. 每个项目下列出 2-5 条关键工作项（简短的一句话）
+3. 语言自然流畅，像自己写的日报，不要机器翻译感
+4. 输出为 Markdown 格式
+
+## 对话记录
+${dataBlock}
+
+请直接输出日报内容，不要加前言或说明。`;
+}
+
+async function generateReport(sections: ProjectSection[], hours: number): Promise<string> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new Error('未设置 DEEPSEEK_API_KEY 环境变量');
+  }
+
+  const prompt = buildReportPrompt(sections, hours);
+
+  const res = await fetch(DEEPSEEK_API, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: DEEPSEEK_MODEL,
+      messages: [
+        { role: 'user', content: prompt },
+      ],
+      temperature: 0.7,
+      max_tokens: 4096,
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`DeepSeek API error ${res.status}: ${errBody}`);
+  }
+
+  const data = await res.json() as any;
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('DeepSeek API 返回内容为空');
+  }
+  return content.trim();
+}
+
+function saveReport(markdown: string, hours: number): string {
+  const outputDir = getReportOutputPath();
+  mkdirSync(outputDir, { recursive: true });
+
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0];
+  const filename = `${dateStr}-日报.md`;
+  const filePath = join(outputDir, filename);
+
+  // Add a header with generation info
+  const header = `# 工作日报 — ${dateStr}\n\n> 自动生成 · 覆盖最近 ${hours} 小时的对话\n\n---\n\n`;
+  writeFileSync(filePath, header + markdown, 'utf-8');
+
+  return filePath;
 }
 
 // ── HTML template ──────────────────────────────────────
@@ -287,6 +382,71 @@ export function startDashboard(opts: { port?: string; hours?: string }): void {
       } catch (e: any) {
         res.writeHead(400);
         res.end(JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+
+    // GET /api/report-config — 日报配置状态
+    if (url === '/api/report-config' && method === 'GET') {
+      const hasApiKey = !!process.env.DEEPSEEK_API_KEY;
+      const outputPath = getReportOutputPath();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ outputPath, hasApiKey }));
+      return;
+    }
+
+    // POST /api/report — AI 日报生成
+    if (url === '/api/report' && method === 'POST') {
+      const body = await readBody(req);
+      try {
+        const { hours = 24 } = JSON.parse(body) as ReportRequest;
+
+        // Collect sessions across all projects for the time window
+        const projects = listProjects();
+        const sections: ProjectSection[] = [];
+
+        for (const project of projects) {
+          const claudeDirs = project.claudeDirs || ['claude'];
+          const files = scanProject(project.path, claudeDirs);
+          const sessions: SessionItem[] = [];
+
+          for (const file of files) {
+            const summary = parseSession(file.path);
+            if (!summary) continue;
+
+            const sessionTime = summary.lastActiveAt || file.mtime;
+            const threshold = Date.now() - hours * 60 * 60 * 1000;
+            if (sessionTime.getTime() < threshold) continue;
+
+            sessions.push({
+              sessionId: summary.sessionId,
+              title: summary.title || '(无标题)',
+              lastMessage: summary.lastUserMessage || '(无消息)',
+              lastActiveAt: sessionTime.toISOString(),
+              relativeTime: relativeTime(sessionTime),
+              branch: summary.branch || 'unknown',
+              claudeDir: detectClaudeDir(file.path),
+            });
+          }
+
+          sections.push({
+            name: project.name,
+            path: project.path,
+            sessions,
+            sessionCount: sessions.length,
+            isActive: sessions.length > 0,
+            claudeDirs,
+          });
+        }
+
+        const markdown = await generateReport(sections, hours);
+        const filePath = saveReport(markdown, hours);
+
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, filePath, content: markdown }));
+      } catch (e: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: e.message || '生成日报失败' }));
       }
       return;
     }

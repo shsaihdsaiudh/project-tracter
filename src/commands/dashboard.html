@@ -322,6 +322,30 @@
       font-size: 0.8rem;
       color: #86868b;
     }
+    .report-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.35rem 0.8rem;
+      border: 1.5px solid #d1d1d6;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #515154;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      margin-right: 0.8rem;
+    }
+    .report-btn:hover {
+      border-color: #007aff;
+      color: #007aff;
+      background: #f0f6ff;
+    }
+    .report-btn.loading {
+      pointer-events: none;
+      opacity: 0.6;
+    }
     .live-dot {
       width: 8px;
       height: 8px;
@@ -566,6 +590,7 @@
     <div class="header">
       <h1>🏠 Project Tracker</h1>
       <div class="live-badge">
+        <button class="report-btn" id="reportBtn" title="AI 生成日报">📝 生成日报</button>
         <span class="live-dot"></span>
         实时监控中
       </div>
@@ -779,6 +804,130 @@
     }
 
     document.getElementById('addBtn').addEventListener('click', addProject);
+
+    // ── Report Generation ──────────────────────────────
+
+    function showReportOptions() {
+      // First check config
+      fetch('/api/report-config')
+        .then(function(r) { return r.json(); })
+        .then(function(config) {
+          if (!config.hasApiKey) {
+            var overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+            overlay.innerHTML =
+              '<div class="modal-box">' +
+                '<h3 style="color:#ff3b30;">⚠️ 未配置 API Key</h3>' +
+                '<div class="modal-sub" style="margin:1rem 0; line-height:1.8;">' +
+                  '请设置环境变量 <code style="background:#f0f0f2;padding:0.15rem 0.4rem;border-radius:4px;">DEEPSEEK_API_KEY</code><br><br>' +
+                  '获取方式：<a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a> → API Keys<br><br>' +
+                  '设置后重启 Dashboard 即可使用。<br><br>' +
+                  '日报将写入：<br><code style="background:#f0f0f2;padding:0.15rem 0.4rem;border-radius:4px;font-size:0.7rem;">' + esc(config.outputPath) + '</code>' +
+                '</div>' +
+                '<div class="modal-actions">' +
+                  '<button class="modal-btn primary" id="noKeyClose">知道了</button>' +
+                '</div>' +
+              '</div>';
+            document.body.appendChild(overlay);
+            overlay.querySelector('#noKeyClose').addEventListener('click', function() { overlay.remove(); });
+            return;
+          }
+
+          // Has API key — show time options
+          var overlay = document.createElement('div');
+          overlay.className = 'modal-overlay';
+          overlay.onclick = function(e) {
+            if (e.target === overlay) overlay.remove();
+          };
+
+          overlay.innerHTML =
+            '<div class="modal-box">' +
+              '<h3>📝 生成日报</h3>' +
+              '<div class="modal-sub">选择时间范围，AI 将自动总结工作内容</div>' +
+              '<div class="modal-options" style="flex-direction: column; gap: 0.5rem;">' +
+                '<button class="modal-btn cancel" data-hours="6" style="width:100%; text-align:left; padding:0.7rem 1rem; border: 1.5px solid #e8e8ed; background:#fff; border-radius:10px; cursor:pointer;">🕐 最近 6 小时</button>' +
+                '<button class="modal-btn cancel" data-hours="24" style="width:100%; text-align:left; padding:0.7rem 1rem; border: 1.5px solid #e8e8ed; background:#fff; border-radius:10px; cursor:pointer;">📅 今天（24 小时）</button>' +
+                '<button class="modal-btn cancel" data-hours="48" style="width:100%; text-align:left; padding:0.7rem 1rem; border: 1.5px solid #e8e8ed; background:#fff; border-radius:10px; cursor:pointer;">📆 昨天 + 今天</button>' +
+                '<button class="modal-btn cancel" data-hours="168" style="width:100%; text-align:left; padding:0.7rem 1rem; border: 1.5px solid #e8e8ed; background:#fff; border-radius:10px; cursor:pointer;">📊 本周</button>' +
+              '</div>' +
+              '<div class="modal-actions" style="margin-top:0.8rem;">' +
+                '<button class="modal-btn cancel" id="reportCancel">取消</button>' +
+              '</div>' +
+            '</div>';
+
+          document.body.appendChild(overlay);
+
+          var cancelBtn = overlay.querySelector('#reportCancel');
+          cancelBtn.addEventListener('click', function() { overlay.remove(); });
+
+          // Bind time option clicks
+          var optionBtns = overlay.querySelectorAll('[data-hours]');
+          for (var i = 0; i < optionBtns.length; i++) {
+            optionBtns[i].addEventListener('click', function(e) {
+              var hours = parseInt(this.getAttribute('data-hours'), 10);
+              overlay.remove();
+              startReportGeneration(hours);
+            });
+          }
+        });
+    }
+
+    function startReportGeneration(hours) {
+      var btn = document.getElementById('reportBtn');
+      btn.classList.add('loading');
+      btn.textContent = '⏳ 生成中...';
+
+      fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hours: hours })
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.error) {
+            showReportResult('❌ 生成失败', data.error, true);
+          } else {
+            showReportResult('✅ 日报已生成', '文件: ' + data.filePath + '\n\n' + data.content);
+          }
+        })
+        .catch(function(err) {
+          showReportResult('❌ 请求失败', err.message || '网络错误', true);
+        })
+        .finally(function() {
+          btn.classList.remove('loading');
+          btn.textContent = '📝 生成日报';
+        });
+    }
+
+    function showReportResult(title, content, isError) {
+      var overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.onclick = function(e) {
+        if (e.target === overlay) overlay.remove();
+      };
+
+      var escapedContent = esc(content)
+        .replace(/\n/g, '<br>')
+        .replace(/## /g, '<strong>')
+        .replace(/- /g, '• ');
+
+      overlay.innerHTML =
+        '<div class="modal-box" style="max-width: 600px; max-height: 80vh; overflow-y: auto;">' +
+          '<h3 style="' + (isError ? 'color:#ff3b30;' : 'color:#34c759;') + '">' + esc(title) + '</h3>' +
+          '<div style="margin:1rem 0; font-size:0.82rem; line-height:1.6; white-space:pre-wrap; color:#515154;">' + escapedContent + '</div>' +
+          '<div class="modal-actions">' +
+            '<button class="modal-btn primary" id="reportClose">关闭</button>' +
+          '</div>' +
+        '</div>';
+
+      document.body.appendChild(overlay);
+
+      var closeBtn = overlay.querySelector('#reportClose');
+      closeBtn.addEventListener('click', function() { overlay.remove(); });
+    }
+
+    document.getElementById('reportBtn').addEventListener('click', showReportOptions);
 
     // ── Add project variant modal ───────────────────────
 
