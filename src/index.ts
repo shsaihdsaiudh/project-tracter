@@ -1,5 +1,27 @@
 #!/usr/bin/env tsx
 
+import { readFileSync, existsSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+// ── Load .env ──────────────────────────────────────────
+const __rootDir = dirname(dirname(fileURLToPath(import.meta.url)));
+const envPath = resolve(__rootDir, '.env');
+if (existsSync(envPath)) {
+  const lines = readFileSync(envPath, 'utf-8').split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.substring(0, eqIdx).trim();
+    const value = trimmed.substring(eqIdx + 1).trim();
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
+
 import { Command } from 'commander';
 import { addCommand } from './commands/add.js';
 import { removeCommand } from './commands/remove.js';
