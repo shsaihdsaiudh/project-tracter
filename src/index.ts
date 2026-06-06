@@ -77,7 +77,8 @@ program
   .description('启动 Web 看板仪表盘')
   .option('-p, --port <port>', '端口号', '3456')
   .option('--hours <hours>', '活跃窗口小时数', '6')
-  .action((opts: { port?: string; hours?: string }) => {
+  .option('--api-only', '仅启动 API 服务（开发模式）')
+  .action((opts: { port?: string; hours?: string; apiOnly?: boolean }) => {
     startDashboard(opts);
   });
 

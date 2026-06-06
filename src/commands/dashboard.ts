@@ -1,8 +1,8 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { exec } from 'child_process';
-import { readFileSync, mkdirSync, writeFileSync } from 'fs';
+import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { dirname, resolve, join } from 'path';
+import { dirname, resolve, join, extname } from 'path';
 import { listProjects, addProject, removeProject, setProjectClaudeDirs, CLAUDE_VARIANTS, getReportOutputPath, setReportOutputPath, getHiddenSessions, toggleHiddenSession } from '../lib/config.js';
 import { scanProject, isProjectActive } from '../lib/scanner.js';
 import { parseSession, extractAllUserMessages } from '../lib/parser.js';
@@ -204,12 +204,43 @@ function saveReport(markdown: string, hours: number): string {
 
 // ── HTML template ──────────────────────────────────────
 
+// ── MIME types ────────────────────────────────────────
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const HTML_TEMPLATE = readFileSync(resolve(__dirname, 'dashboard.html'), 'utf-8');
+const DIST_DIR = resolve(__dirname, '..', '..', 'dashboard', 'dist');
 
-function renderHTML(payload: InitialPayload): string {
-  return HTML_TEMPLATE.replace('__INITIAL_JSON__', JSON.stringify(payload));
+function serveStatic(url: string, res: ServerResponse): boolean {
+  let filePath = join(DIST_DIR, url === '/' ? 'index.html' : url);
+  // Security: prevent directory traversal
+  if (!filePath.startsWith(DIST_DIR)) return false;
+  if (!existsSync(filePath)) {
+    // SPA fallback: serve index.html for unknown paths
+    filePath = join(DIST_DIR, 'index.html');
+    if (!existsSync(filePath)) return false;
+  }
+
+  const ext = extname(filePath);
+  const mime = MIME_TYPES[ext] || 'application/octet-stream';
+
+  try {
+    const content = readFileSync(filePath);
+    res.writeHead(200, { 'Content-Type': mime });
+    res.end(content);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ── Data collection ────────────────────────────────────
@@ -316,7 +347,7 @@ function readBody(req: IncomingMessage): Promise<string> {
 
 // ── Server ─────────────────────────────────────────────
 
-export function startDashboard(opts: { port?: string; hours?: string }): void {
+export function startDashboard(opts: { port?: string; hours?: string; apiOnly?: boolean }): void {
   const port = parseInt(opts.port || '3456', 10);
   activeHours = parseInt(opts.hours || '6', 10);
 
@@ -578,11 +609,11 @@ export function startDashboard(opts: { port?: string; hours?: string }): void {
       return;
     }
 
-    // Default: serve HTML
-    const payload = collectInitialPayload();
-    const html = renderHTML(payload);
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(html);
+    // Default: serve static files from dashboard/dist/
+    if (!opts.apiOnly && serveStatic(url, res)) return;
+    // Fallback for API-only mode
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ ok: true, mode: 'api-only' }));
   });
 
   // Periodic scan: broadcast to all SSE clients every 5 seconds
