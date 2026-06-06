@@ -58,11 +58,11 @@ pt config --output ~/my-notes/日报/
 
 | 平台 | 文件夹选择 | Obsidian 检测 |
 |------|-----------|---------------|
-| macOS | 原生 Finder 选择器 | `~/Library/Application Support/obsidian/` |
-| Windows | 手动输入路径 | `%APPDATA%/obsidian/` |
-| Linux | 手动输入路径 | `~/.config/obsidian/` |
+| macOS | 原生 Finder | `~/Library/Application Support/obsidian/` |
+| Windows | 原生资源管理器（PowerShell） | `%APPDATA%/obsidian/` |
+| Linux | 原生文件选择器（zenity/kdialog） | `~/.config/obsidian/` |
 
-非 macOS 平台添加项目时，浏览器会弹出输入框让你手动输入路径。
+所有平台都会弹出原生文件夹选择对话框。
 
 ## 命令
 

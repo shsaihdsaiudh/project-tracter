@@ -404,27 +404,31 @@ export function startDashboard(opts: { port?: string; hours?: string }): void {
       return;
     }
 
-    // POST /api/browse — open native folder picker (macOS) or return unsupported
+    // POST /api/browse — open native folder picker (cross-platform)
     if (url === '/api/browse' && method === 'POST') {
-      if (process.platform !== 'darwin') {
-        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ path: null, unsupported: true }));
-        return;
+      const platform = process.platform;
+      let cmd: string;
+
+      if (platform === 'darwin') {
+        cmd = `osascript -e 'POSIX path of (choose folder with prompt "选择要追踪的项目文件夹")'`;
+      } else if (platform === 'win32') {
+        // PowerShell: .NET FolderBrowserDialog
+        cmd = `powershell -Command "Add-Type -AssemblyName System.Windows.Forms; $f=New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description='选择要追踪的项目文件夹'; if($f.ShowDialog() -eq 'OK'){$f.SelectedPath}"`;
+      } else {
+        // Linux: try zenity first, fall back to kdialog
+        cmd = `if command -v zenity >/dev/null 2>&1; then zenity --file-selection --directory --title='选择要追踪的项目文件夹' 2>/dev/null; elif command -v kdialog >/dev/null 2>&1; then kdialog --getexistingdirectory 2>/dev/null; else echo ''; fi`;
       }
 
-      exec(
-        `osascript -e 'POSIX path of (choose folder with prompt "选择要追踪的项目文件夹")'`,
-        (err, stdout) => {
-          if (err) {
-            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-            res.end(JSON.stringify({ path: null, cancelled: true }));
-            return;
-          }
-          const selectedPath = stdout.trim();
+      exec(cmd, { timeout: 120000 }, (err, stdout) => {
+        if (err || !stdout.trim()) {
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ path: selectedPath }));
-        },
-      );
+          res.end(JSON.stringify({ path: null, cancelled: true }));
+          return;
+        }
+        const selectedPath = stdout.trim();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ path: selectedPath }));
+      });
       return;
     }
 
