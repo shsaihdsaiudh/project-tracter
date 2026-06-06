@@ -77,6 +77,8 @@ export interface TrackerConfig {
   projects: ProjectEntry[];
   /** Output directory for daily AI-generated reports */
   reportOutputPath?: string;
+  /** Session IDs that the user has chosen to hide */
+  hiddenSessions?: string[];
 }
 
 const CONFIG_PATH = resolve(homedir(), '.project-tracker.json');
@@ -213,4 +215,30 @@ export function setReportOutputPath(path: string): void {
   const config = readConfig();
   config.reportOutputPath = path;
   writeConfig(config);
+}
+
+/**
+ * Get the list of hidden session IDs.
+ */
+export function getHiddenSessions(): string[] {
+  const config = readConfig();
+  return config.hiddenSessions || [];
+}
+
+/**
+ * Toggle a session's hidden state. Returns the new hidden list.
+ */
+export function toggleHiddenSession(sessionId: string): string[] {
+  const config = readConfig();
+  if (!config.hiddenSessions) config.hiddenSessions = [];
+
+  const idx = config.hiddenSessions.indexOf(sessionId);
+  if (idx === -1) {
+    config.hiddenSessions.push(sessionId);
+  } else {
+    config.hiddenSessions.splice(idx, 1);
+  }
+
+  writeConfig(config);
+  return config.hiddenSessions;
 }

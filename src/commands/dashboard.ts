@@ -3,7 +3,7 @@ import { exec } from 'child_process';
 import { readFileSync, mkdirSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve, join } from 'path';
-import { listProjects, addProject, removeProject, setProjectClaudeDirs, CLAUDE_VARIANTS, getReportOutputPath, setReportOutputPath } from '../lib/config.js';
+import { listProjects, addProject, removeProject, setProjectClaudeDirs, CLAUDE_VARIANTS, getReportOutputPath, setReportOutputPath, getHiddenSessions, toggleHiddenSession } from '../lib/config.js';
 import { scanProject, isProjectActive } from '../lib/scanner.js';
 import { parseSession, extractAllUserMessages } from '../lib/parser.js';
 import { relativeTime } from '../lib/formatter.js';
@@ -466,8 +466,9 @@ export function startDashboard(opts: { port?: string; hours?: string }): void {
       if (method === 'GET') {
         const hasApiKey = !!process.env.DEEPSEEK_API_KEY;
         const outputPath = getReportOutputPath();
+        const hiddenSessions = getHiddenSessions();
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ outputPath, hasApiKey }));
+        res.end(JSON.stringify({ outputPath, hasApiKey, hiddenSessions }));
         return;
       }
 
@@ -489,6 +490,27 @@ export function startDashboard(opts: { port?: string; hours?: string }): void {
         }
         return;
       }
+    }
+
+    // POST /api/hidden-sessions — toggle hide/show a session
+    if (url === '/api/hidden-sessions' && method === 'POST') {
+      const body = await readBody(req);
+      try {
+        const { sessionId } = JSON.parse(body);
+        if (!sessionId) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: '缺少 sessionId' }));
+          return;
+        }
+        const hiddenSessions = toggleHiddenSession(sessionId);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ hiddenSessions }));
+        broadcast();
+      } catch (e: any) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: e.message }));
+      }
+      return;
     }
 
     // POST /api/report — AI 日报生成
