@@ -49,6 +49,7 @@
       cursor: pointer;
       transition: background 0.15s;
       font-size: 0.85rem;
+      position: relative;
     }
     .sidebar-item:hover { background: #f5f5f7; }
     .sidebar-item.active { background: #e8f5e9; }
@@ -85,6 +86,76 @@
     .sidebar-item:hover .sidebar-remove { opacity: 1; }
     .sidebar-remove:hover { color: #ff3b30; background: #fff0f0; }
 
+    /* Claude variant tags */
+    .claude-tags {
+      display: flex;
+      gap: 0.2rem;
+      margin-top: 0.3rem;
+      padding-left: 1.1rem;
+    }
+    .claude-tag {
+      font-size: 0.6rem;
+      font-weight: 600;
+      padding: 0.1rem 0.4rem;
+      border-radius: 6px;
+      background: #f0f0f2;
+      color: #86868b;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .claude-tag.active { background: #e8f5e9; color: #34c759; }
+    .sidebar-settings {
+      width: 20px;
+      height: 20px;
+      border: none;
+      background: transparent;
+      color: #aeaeb2;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.15s;
+    }
+    .sidebar-item:hover .sidebar-settings { opacity: 1; }
+    .sidebar-settings:hover { color: #007aff; background: #e8f0fe; }
+
+    /* Settings popover */
+    .settings-popover {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 4px;
+      background: #ffffff;
+      border: 1px solid #e8e8ed;
+      border-radius: 10px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+      padding: 0.5rem;
+      z-index: 100;
+      min-width: 160px;
+      display: none;
+    }
+    .settings-popover.show { display: block; }
+    .settings-popover label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.5rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.78rem;
+      transition: background 0.1s;
+    }
+    .settings-popover label:hover { background: #f5f5f7; }
+    .settings-popover input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      accent-color: #007aff;
+    }
+
     .sidebar-footer {
       padding: 0.75rem 0.5rem;
       border-top: 1px solid #e8e8ed;
@@ -110,6 +181,114 @@
       background: #f0faf2;
     }
     .sidebar-add-btn.loading { pointer-events: none; opacity: 0.6; }
+
+    /* ── Modal overlay ── */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      animation: fadeIn 0.15s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .modal-box {
+      background: #ffffff;
+      border-radius: 14px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.16);
+      padding: 1.5rem;
+      min-width: 320px;
+      max-width: 420px;
+      animation: slideUp 0.2s ease;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(12px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .modal-box h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    .modal-box .modal-sub {
+      font-size: 0.78rem;
+      color: #86868b;
+      margin-bottom: 1rem;
+    }
+    .modal-box .modal-path {
+      font-size: 0.72rem;
+      color: #aeaeb2;
+      background: #f5f5f7;
+      padding: 0.35rem 0.6rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .modal-options {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin-bottom: 1.2rem;
+    }
+    .modal-option {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.6rem 0.7rem;
+      border: 1.5px solid #e8e8ed;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      font-size: 0.85rem;
+    }
+    .modal-option:hover { border-color: #007aff; background: #f5f9ff; }
+    .modal-option.selected { border-color: #007aff; background: #e8f0fe; }
+    .modal-option input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #007aff;
+    }
+    .modal-option .opt-label { flex: 1; }
+    .modal-option .opt-desc {
+      font-size: 0.68rem;
+      color: #aeaeb2;
+      display: block;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: flex-end;
+    }
+    .modal-btn {
+      padding: 0.5rem 1.2rem;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: background 0.15s;
+    }
+    .modal-btn.primary {
+      background: #007aff;
+      color: #fff;
+    }
+    .modal-btn.primary:hover { background: #0066d6; }
+    .modal-btn.primary:disabled { background: #b3d7ff; cursor: default; }
+    .modal-btn.cancel {
+      background: #f5f5f7;
+      color: #515154;
+    }
+    .modal-btn.cancel:hover { background: #e8e8ed; }
     .sidebar-empty {
       padding: 2rem 1rem;
       text-align: center;
@@ -193,6 +372,39 @@
     .badge.inactive {
       background: #f5f5f7;
       color: #aeaeb2;
+    }
+
+    /* Time filter dropdown */
+    .time-filter {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      margin-left: auto;
+      font-size: 0.72rem;
+      color: #86868b;
+      flex-shrink: 0;
+    }
+    .time-filter select {
+      font-size: 0.72rem;
+      padding: 0.2rem 0.4rem;
+      border: 1px solid #d1d1d6;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #515154;
+      cursor: pointer;
+      outline: none;
+      appearance: none;
+      -webkit-appearance: none;
+      padding-right: 1.3rem;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2386868b'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.35rem center;
+    }
+    .time-filter select:hover { border-color: #007aff; }
+    .time-filter select:focus { border-color: #007aff; box-shadow: 0 0 0 2px rgba(0,122,255,0.15); }
+    .time-filter .filter-count {
+      color: #aeaeb2;
+      white-space: nowrap;
     }
 
     /* ── Session row ── */
@@ -370,25 +582,41 @@
       for (var i = 0; i < projects.length; i++) {
         var p = projects[i];
         var dotCls = p.isActive ? 'on' : 'off';
+        var dirs = p.claudeDirs || ['claude'];
+        var tagsHtml = '';
+        for (var d = 0; d < dirs.length; d++) {
+          tagsHtml += '<span class="claude-tag active">' + esc(dirs[d]) + '</span>';
+        }
         html +=
           '<div class="sidebar-item' + (p.isActive ? ' active' : '') + '" data-name="' + esc(p.name) + '">' +
             '<span class="sidebar-dot ' + dotCls + '"></span>' +
             '<span class="sidebar-name" title="' + esc(p.path) + '">📁 ' + esc(p.name) + '</span>' +
+            '<button class="sidebar-settings" data-name="' + esc(p.name) + '" title="配置 Claude 目录">⚙</button>' +
             '<button class="sidebar-remove" data-name="' + esc(p.name) + '" title="移除追踪">&times;</button>' +
-          '</div>';
+          '</div>' +
+          '<div class="claude-tags">' + tagsHtml + '</div>';
       }
       listEl.innerHTML = html;
     }
 
     function bindSidebarEvents() {
-      var btns = document.querySelectorAll('.sidebar-remove');
-      for (var i = 0; i < btns.length; i++) {
-        btns[i].addEventListener('click', function(e) {
+      var rmBtns = document.querySelectorAll('.sidebar-remove');
+      for (var i = 0; i < rmBtns.length; i++) {
+        rmBtns[i].addEventListener('click', function(e) {
           e.stopPropagation();
           var name = this.getAttribute('data-name');
           if (confirm('确定要移除对 「' + name + '」 的追踪吗？')) {
             removeProject(name);
           }
+        });
+      }
+
+      var cfgBtns = document.querySelectorAll('.sidebar-settings');
+      for (var j = 0; j < cfgBtns.length; j++) {
+        cfgBtns[j].addEventListener('click', function(e) {
+          e.stopPropagation();
+          var name = this.getAttribute('data-name');
+          showSettingsPopover(name, this);
         });
       }
     }
@@ -397,6 +625,93 @@
       fetch('/api/projects/' + encodeURIComponent(name), { method: 'DELETE' })
         .then(function() { /* SSE will push update */ })
         .catch(function() {});
+    }
+
+    // ── Settings popover ────────────────────────────────
+
+    var currentPopover = null;
+
+    function showSettingsPopover(name, anchor) {
+      // Remove any existing popover
+      if (currentPopover) {
+        currentPopover.remove();
+        currentPopover = null;
+      }
+
+      // Find the project's current claudeDirs
+      var projects = (window.__lastProjects__) || [];
+      var project = null;
+      for (var i = 0; i < projects.length; i++) {
+        if (projects[i].name === name) { project = projects[i]; break; }
+      }
+      if (!project) return;
+      var currentDirs = project.claudeDirs || ['claude'];
+
+      var popover = document.createElement('div');
+      popover.className = 'settings-popover show';
+
+      var variants = ['claude', 'claude-internal'];
+      for (var v = 0; v < variants.length; v++) {
+        (function(variant) {
+          var checked = currentDirs.indexOf(variant) !== -1;
+          var label = document.createElement('label');
+          var input = document.createElement('input');
+          input.type = 'checkbox';
+          input.checked = checked;
+          input.addEventListener('change', function() {
+            updateClaudeDirs(name, variant, input.checked);
+          });
+          label.appendChild(input);
+          label.appendChild(document.createTextNode(' ' + variant));
+          popover.appendChild(label);
+        })(variants[v]);
+      }
+
+      anchor.parentNode.appendChild(popover);
+      currentPopover = popover;
+
+      // Close on outside click
+      setTimeout(function() {
+        document.addEventListener('click', closePopover, { once: true });
+      }, 10);
+    }
+
+    function closePopover() {
+      if (currentPopover) {
+        currentPopover.remove();
+        currentPopover = null;
+      }
+    }
+
+    function updateClaudeDirs(name, variant, enable) {
+      // Find current project and compute new dirs
+      var projects = window.__lastProjects__ || [];
+      var project = null;
+      for (var i = 0; i < projects.length; i++) {
+        if (projects[i].name === name) { project = projects[i]; break; }
+      }
+      if (!project) return;
+      var dirs = (project.claudeDirs || ['claude']).slice();
+
+      if (enable) {
+        if (dirs.indexOf(variant) === -1) dirs.push(variant);
+      } else {
+        var idx = dirs.indexOf(variant);
+        if (idx !== -1) dirs.splice(idx, 1);
+      }
+      // Keep at least one
+      if (dirs.length === 0) {
+        dirs = ['claude'];
+      }
+
+      fetch('/api/projects/' + encodeURIComponent(name) + '/claude-dirs', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claudeDirs: dirs })
+      }).then(function() {
+        closePopover();
+        // SSE will push update
+      }).catch(function() {});
     }
 
     function addProject() {
@@ -408,13 +723,8 @@
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data.path) {
-            return fetch('/api/projects', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ path: data.path })
-            });
+            showVariantModal(data.path);
           }
-          return null;
         })
         .catch(function() {})
         .finally(function() {
@@ -425,6 +735,149 @@
 
     document.getElementById('addBtn').addEventListener('click', addProject);
 
+    // ── Add project variant modal ───────────────────────
+
+    function showVariantModal(projectPath) {
+      var overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.onclick = function(e) {
+        if (e.target === overlay) overlay.remove();
+      };
+
+      // Extract folder name from path
+      var parts = projectPath.split('/');
+      var folderName = parts[parts.length - 1] || projectPath;
+
+      var selected = { claude: true, 'claude-internal': false };
+
+      overlay.innerHTML =
+        '<div class="modal-box">' +
+          '<h3>📁 ' + esc(folderName) + '</h3>' +
+          '<div class="modal-sub">选择要追踪的 Claude 对话源</div>' +
+          '<div class="modal-path">' + esc(projectPath) + '</div>' +
+          '<div class="modal-options">' +
+            '<label class="modal-option selected" id="opt-claude">' +
+              '<input type="checkbox" checked id="chk-claude">' +
+              '<span class="opt-label">claude<span class="opt-desc">~/.claude/projects/</span></span>' +
+            '</label>' +
+            '<label class="modal-option" id="opt-claude-internal">' +
+              '<input type="checkbox" id="chk-claude-internal">' +
+              '<span class="opt-label">claude-internal<span class="opt-desc">~/.claude-internal/projects/</span></span>' +
+            '</label>' +
+          '</div>' +
+          '<div class="modal-actions">' +
+            '<button class="modal-btn cancel" id="modalCancel">取消</button>' +
+            '<button class="modal-btn primary" id="modalConfirm">确认添加</button>' +
+          '</div>' +
+        '</div>';
+
+      document.body.appendChild(overlay);
+
+      // Bind toggle interactions
+      var optClaude = overlay.querySelector('#opt-claude');
+      var optInternal = overlay.querySelector('#opt-claude-internal');
+      var chkClaude = overlay.querySelector('#chk-claude');
+      var chkInternal = overlay.querySelector('#chk-claude-internal');
+      var confirmBtn = overlay.querySelector('#modalConfirm');
+      var cancelBtn = overlay.querySelector('#modalCancel');
+
+      function updateSelected() {
+        selected.claude = chkClaude.checked;
+        selected['claude-internal'] = chkInternal.checked;
+        optClaude.classList.toggle('selected', chkClaude.checked);
+        optInternal.classList.toggle('selected', chkInternal.checked);
+        // At least one must be selected
+        confirmBtn.disabled = !chkClaude.checked && !chkInternal.checked;
+      }
+
+      optClaude.addEventListener('click', function(e) {
+        if (e.target === chkClaude) return;
+        chkClaude.checked = !chkClaude.checked;
+        updateSelected();
+      });
+      optInternal.addEventListener('click', function(e) {
+        if (e.target === chkInternal) return;
+        chkInternal.checked = !chkInternal.checked;
+        updateSelected();
+      });
+      chkClaude.addEventListener('change', updateSelected);
+      chkInternal.addEventListener('change', updateSelected);
+
+      cancelBtn.addEventListener('click', function() { overlay.remove(); });
+
+      confirmBtn.addEventListener('click', function() {
+        var dirs = [];
+        if (chkClaude.checked) dirs.push('claude');
+        if (chkInternal.checked) dirs.push('claude-internal');
+
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '... 添加中';
+
+        fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: projectPath, claudeDirs: dirs })
+        }).then(function() {
+          overlay.remove();
+          // SSE will push update
+        }).catch(function() {
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = '确认添加';
+        });
+      });
+    }
+
+    // ── Time filter state (per project) ────────────────
+
+    var TIME_OPTIONS = [
+      { label: '1 小时',  hours: 1 },
+      { label: '6 小时',  hours: 6 },
+      { label: '12 小时', hours: 12 },
+      { label: '1 天',    hours: 24 },
+      { label: '3 天',    hours: 72 },
+      { label: '7 天',    hours: 168 },
+      { label: '全部',    hours: 0 },
+    ];
+    var DEFAULT_TIME_HOURS = 6;
+
+    // Per-project time filter: { projectName: hours }
+    var projectTimeFilters = {};
+
+    function getProjectTimeFilter(name) {
+      if (projectTimeFilters[name] === undefined) {
+        projectTimeFilters[name] = DEFAULT_TIME_HOURS;
+      }
+      return projectTimeFilters[name];
+    }
+
+    function setProjectTimeFilter(name, hours) {
+      projectTimeFilters[name] = hours;
+      // Re-render with current data
+      if (window.__lastSections__) {
+        renderContent(window.__lastSections__);
+      }
+    }
+
+    function filterSessions(sessions, hours) {
+      if (hours === 0) return sessions; // "全部" → no filter
+      var threshold = Date.now() - hours * 60 * 60 * 1000;
+      return sessions.filter(function(s) {
+        return new Date(s.lastActiveAt).getTime() >= threshold;
+      });
+    }
+
+    function buildTimeSelectHtml(name, currentHours) {
+      var html = '<div class="time-filter">' +
+        '<select data-project="' + esc(name) + '" class="time-select">';
+      for (var t = 0; t < TIME_OPTIONS.length; t++) {
+        var opt = TIME_OPTIONS[t];
+        var sel = opt.hours === currentHours ? ' selected' : '';
+        html += '<option value="' + opt.hours + '"' + sel + '>' + esc(opt.label) + '</option>';
+      }
+      html += '</select></div>';
+      return html;
+    }
+
     // ── Content (list layout) ──────────────────────────
 
     function renderContent(sections) {
@@ -434,49 +887,67 @@
       if (!sections || sections.length === 0) {
         contentEl.innerHTML = '';
         emptyEl.classList.add('show');
-      } else {
-        emptyEl.classList.remove('show');
-        var html = '';
-        for (var i = 0; i < sections.length; i++) {
-          var sec = sections[i];
-          var badgeCls = sec.isActive ? 'active' : 'inactive';
-          var badgeText = sec.isActive ? '活跃' : '休眠';
-          var branch = sec.sessions.length > 0 ? sec.sessions[0].branch : '-';
-
-          html += '<div class="project-section">';
-          html +=
-            '<div class="project-bar">' +
-              '<span>📁</span>' +
-              '<span class="name">' + esc(sec.name) + '</span>' +
-              '<span class="badge ' + badgeCls + '">' + badgeText + '</span>' +
-              '<span class="meta">' +
-                '<span>🌿 ' + esc(branch) + '</span>' +
-                '<span>💬 ' + sec.sessionCount + ' 个会话</span>' +
-              '</span>' +
-            '</div>';
-
-          if (sec.sessions.length === 0) {
-            html += '<div class="session-empty">最近 6 小时内无对话</div>';
-          }
-
-          for (var j = 0; j < sec.sessions.length; j++) {
-            var s = sec.sessions[j];
-            var cls = getTimeClass(s.lastActiveAt);
-            var liveCls = getTimeLiveClass(s.lastActiveAt);
-            html +=
-              '<div class="session-row ' + cls + '">' +
-                '<div class="session-top">' +
-                  '<span class="session-topic">' + esc(s.title) + '</span>' +
-                  '<span class="session-time' + liveCls + '">' + esc(s.relativeTime) + '</span>' +
-                '</div>' +
-                '<div class="session-message">── "' + esc(s.lastMessage) + '"</div>' +
-              '</div>';
-          }
-
-          html += '</div>';
-        }
-        contentEl.innerHTML = html;
+        updateFooter();
+        return;
       }
+
+      emptyEl.classList.remove('show');
+      var html = '';
+
+      for (var i = 0; i < sections.length; i++) {
+        var sec = sections[i];
+        var badgeCls = sec.isActive ? 'active' : 'inactive';
+        var badgeText = sec.isActive ? '活跃' : '休眠';
+        var branch = sec.sessions.length > 0 ? sec.sessions[0].branch : '-';
+        var timeHours = getProjectTimeFilter(sec.name);
+        var filtered = filterSessions(sec.sessions, timeHours);
+
+        html += '<div class="project-section">';
+        html +=
+          '<div class="project-bar">' +
+            '<span>📁</span>' +
+            '<span class="name">' + esc(sec.name) + '</span>' +
+            '<span class="badge ' + badgeCls + '">' + badgeText + '</span>' +
+            '<span class="meta">' +
+              '<span>🌿 ' + esc(branch) + '</span>' +
+              '<span>💬 ' + filtered.length + '/' + sec.sessions.length + ' 个会话</span>' +
+            '</span>' +
+            buildTimeSelectHtml(sec.name, timeHours) +
+          '</div>';
+
+        if (filtered.length === 0) {
+          html += '<div class="session-empty">该时间范围内无对话</div>';
+        }
+
+        for (var j = 0; j < filtered.length; j++) {
+          var s = filtered[j];
+          var cls = getTimeClass(s.lastActiveAt);
+          var liveCls = getTimeLiveClass(s.lastActiveAt);
+          html +=
+            '<div class="session-row ' + cls + '">' +
+              '<div class="session-top">' +
+                '<span class="session-topic">' + esc(s.title) + '</span>' +
+                '<span class="session-time' + liveCls + '">' + esc(s.relativeTime) + '</span>' +
+              '</div>' +
+              '<div class="session-message">── "' + esc(s.lastMessage) + '"</div>' +
+            '</div>';
+        }
+
+        html += '</div>';
+      }
+
+      contentEl.innerHTML = html;
+
+      // Bind time filter change events
+      var selects = contentEl.querySelectorAll('.time-select');
+      for (var k = 0; k < selects.length; k++) {
+        selects[k].addEventListener('change', function() {
+          var projectName = this.getAttribute('data-project');
+          var hours = parseInt(this.value, 10);
+          setProjectTimeFilter(projectName, hours);
+        });
+      }
+
       updateFooter();
     }
 
@@ -487,6 +958,8 @@
 
       es.onmessage = function(event) {
         var data = JSON.parse(event.data);
+        window.__lastProjects__ = data.projects;
+        window.__lastSections__ = data.sections;
         renderSidebar(data.projects);
         bindSidebarEvents();
         renderContent(data.sections);
@@ -503,6 +976,8 @@
 
     // ── Init ───────────────────────────────────────────
 
+    window.__lastProjects__ = __INITIAL__.projects;
+    window.__lastSections__ = __INITIAL__.sections;
     renderSidebar(__INITIAL__.projects);
     bindSidebarEvents();
     renderContent(__INITIAL__.sections);

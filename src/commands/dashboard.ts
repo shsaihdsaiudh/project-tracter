@@ -3,7 +3,7 @@ import { exec } from 'child_process';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
-import { listProjects, addProject, removeProject } from '../lib/config.js';
+import { listProjects, addProject, removeProject, setProjectClaudeDirs, CLAUDE_VARIANTS } from '../lib/config.js';
 import { scanProject, isProjectActive } from '../lib/scanner.js';
 import { parseSession } from '../lib/parser.js';
 import { relativeTime } from '../lib/formatter.js';
@@ -25,12 +25,14 @@ interface ProjectSection {
   sessions: SessionItem[];
   sessionCount: number;
   isActive: boolean;
+  claudeDirs: string[];
 }
 
 interface ProjectItem {
   name: string;
   path: string;
   isActive: boolean;
+  claudeDirs: string[];
 }
 
 interface InitialPayload {
@@ -61,16 +63,14 @@ function collectAllSessions(): ProjectSection[] {
   const results: ProjectSection[] = [];
 
   for (const project of projects) {
-    const files = scanProject(project.path);
-    const active = isProjectActive(project.path, activeHours);
+    const claudeDirs = project.claudeDirs || ['claude'];
+    const files = scanProject(project.path, claudeDirs);
+    const active = isProjectActive(project.path, activeHours, claudeDirs);
     const sessions: SessionItem[] = [];
 
     for (const file of files) {
       const summary = parseSession(file.path);
       const sessionTime = summary?.lastActiveAt || file.mtime;
-
-      // Only include sessions from the last 6 hours
-      if (!isRecent(sessionTime)) continue;
 
       if (summary) {
         sessions.push({
@@ -99,6 +99,7 @@ function collectAllSessions(): ProjectSection[] {
       sessions,
       sessionCount: sessions.length,
       isActive: active,
+      claudeDirs,
     });
   }
 
@@ -113,11 +114,15 @@ function collectAllSessions(): ProjectSection[] {
 }
 
 function collectProjects(): ProjectItem[] {
-  return listProjects().map((p) => ({
-    name: p.name,
-    path: p.path,
-    isActive: isProjectActive(p.path, activeHours),
-  }));
+  return listProjects().map((p) => {
+    const claudeDirs = p.claudeDirs || ['claude'];
+    return {
+      name: p.name,
+      path: p.path,
+      isActive: isProjectActive(p.path, activeHours, claudeDirs),
+      claudeDirs,
+    };
+  });
 }
 
 function collectInitialPayload(): InitialPayload {
@@ -209,15 +214,15 @@ export function startDashboard(opts: { port?: string; hours?: string }): void {
     if (url === '/api/projects' && method === 'POST') {
       const body = await readBody(req);
       try {
-        const { path } = JSON.parse(body);
+        const { path, claudeDirs } = JSON.parse(body);
         if (!path) {
           res.writeHead(400);
           res.end(JSON.stringify({ error: '缺少 path 参数' }));
           return;
         }
-        const entry = addProject(path);
+        const entry = addProject(path, undefined, claudeDirs);
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ name: entry.name, path: entry.path }));
+        res.end(JSON.stringify({ name: entry.name, path: entry.path, claudeDirs: entry.claudeDirs }));
         // Push update to all SSE clients
         broadcast();
       } catch (e: any) {
@@ -242,6 +247,35 @@ export function startDashboard(opts: { port?: string; hours?: string }): void {
           res.end(JSON.stringify({ path: selectedPath }));
         },
       );
+      return;
+    }
+
+    // PUT /api/projects/:name/claude-dirs — update which Claude variants to track
+    if (url.startsWith('/api/projects/') && url.endsWith('/claude-dirs') && method === 'PUT') {
+      const name = decodeURIComponent(
+        url.replace('/api/projects/', '').replace('/claude-dirs', ''),
+      );
+      const body = await readBody(req);
+      try {
+        const { claudeDirs } = JSON.parse(body);
+        if (!Array.isArray(claudeDirs) || claudeDirs.length === 0) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: '缺少 claudeDirs 参数或为空数组' }));
+          return;
+        }
+        const updated = setProjectClaudeDirs(name, claudeDirs);
+        if (!updated) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: '未找到项目: ' + name }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ name: updated.name, path: updated.path, claudeDirs: updated.claudeDirs }));
+        broadcast();
+      } catch (e: any) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: e.message }));
+      }
       return;
     }
 

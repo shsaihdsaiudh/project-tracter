@@ -15,8 +15,9 @@ export function statusCommand(opts: { all?: boolean }): void {
   const results: FormattedStatus[] = [];
 
   for (const project of projects) {
-    const files = scanProject(project.path);
-    const active = isProjectActive(project.path);
+    const claudeDirs = project.claudeDirs;
+    const files = scanProject(project.path, claudeDirs);
+    const active = isProjectActive(project.path, 6, claudeDirs);
 
     // Skip inactive unless --all is set
     if (!active && !opts.all) {

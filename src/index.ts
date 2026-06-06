@@ -6,6 +6,7 @@ import { removeCommand } from './commands/remove.js';
 import { statusCommand } from './commands/status.js';
 import { listCommand } from './commands/list.js';
 import { startDashboard } from './commands/dashboard.js';
+import { configCommand, configSetCommand } from './commands/config.js';
 
 const program = new Command();
 
@@ -56,6 +57,20 @@ program
   .option('--hours <hours>', '活跃窗口小时数', '6')
   .action((opts: { port?: string; hours?: string }) => {
     startDashboard(opts);
+  });
+
+program
+  .command('config')
+  .alias('cfg')
+  .description('查看或修改项目的 Claude 目录配置')
+  .argument('[name]', '项目名称')
+  .option('-c, --claude <dirs>', 'Claude 目录别名列表，逗号分隔 (如 claude,claude-internal)')
+  .action((name?: string, opts?: { claude?: string }) => {
+    if (name && opts?.claude) {
+      configSetCommand(name, opts.claude);
+    } else {
+      configCommand(opts || {});
+    }
   });
 
 // Default command: show status when no subcommand given

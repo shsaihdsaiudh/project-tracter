@@ -2,10 +2,23 @@ import { homedir } from 'os';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 
+/**
+ * Supported Claude variants and their home directory prefixes.
+ * Each key is a short alias, value is the `~/.xxx` directory name.
+ */
+export const CLAUDE_VARIANTS: Record<string, string> = {
+  claude: '.claude',
+  'claude-internal': '.claude-internal',
+};
+
+export const DEFAULT_CLAUDE_DIRS = ['claude'];
+
 export interface ProjectEntry {
   name: string;
   path: string;
   addedAt: string;
+  /** Which Claude variants to scan for this project. Default: ["claude"] */
+  claudeDirs?: string[];
 }
 
 export interface TrackerConfig {
@@ -29,6 +42,12 @@ export function readConfig(): TrackerConfig {
     if (!Array.isArray(config.projects)) {
       return { projects: [] };
     }
+    // Backward compat: ensure every project has claudeDirs
+    for (const p of config.projects) {
+      if (!p.claudeDirs || p.claudeDirs.length === 0) {
+        p.claudeDirs = [...DEFAULT_CLAUDE_DIRS];
+      }
+    }
     return config;
   } catch {
     return { projects: [] };
@@ -39,7 +58,11 @@ export function writeConfig(config: TrackerConfig): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf-8');
 }
 
-export function addProject(projectPath: string, name?: string): ProjectEntry {
+export function addProject(
+  projectPath: string,
+  name?: string,
+  claudeDirs?: string[],
+): ProjectEntry {
   const config = readConfig();
   const resolvedPath = resolve(projectPath);
 
@@ -48,14 +71,27 @@ export function addProject(projectPath: string, name?: string): ProjectEntry {
     (p) => resolve(p.path) === resolvedPath,
   );
   if (existing) {
+    // If claudeDirs provided and different, update existing entry
+    if (claudeDirs && claudeDirs.length > 0) {
+      const validDirs = claudeDirs.filter((d) => d in CLAUDE_VARIANTS);
+      if (validDirs.length > 0) {
+        existing.claudeDirs = validDirs;
+        writeConfig(config);
+      }
+    }
     return existing;
   }
 
   const folderName = name || resolvedPath.split('/').pop() || resolvedPath;
+  const validDirs = (claudeDirs && claudeDirs.length > 0)
+    ? claudeDirs.filter((d) => d in CLAUDE_VARIANTS)
+    : [...DEFAULT_CLAUDE_DIRS];
+
   const entry: ProjectEntry = {
     name: folderName,
     path: resolvedPath,
     addedAt: new Date().toISOString(),
+    claudeDirs: validDirs.length > 0 ? validDirs : [...DEFAULT_CLAUDE_DIRS],
   };
 
   config.projects.push(entry);
@@ -76,6 +112,32 @@ export function removeProject(nameOrPath: string): boolean {
   config.projects.splice(idx, 1);
   writeConfig(config);
   return true;
+}
+
+/**
+ * Update the claudeDirs for a project.
+ * @returns The updated ProjectEntry, or null if project not found.
+ */
+export function setProjectClaudeDirs(
+  nameOrPath: string,
+  claudeDirs: string[],
+): ProjectEntry | null {
+  const config = readConfig();
+  const project = config.projects.find(
+    (p) => p.name === nameOrPath || p.path === nameOrPath,
+  );
+
+  if (!project) return null;
+
+  // Validate: all dirs must be known variants
+  const validDirs = claudeDirs.filter((d) => d in CLAUDE_VARIANTS);
+  if (validDirs.length === 0) {
+    return null; // no valid dirs provided
+  }
+
+  project.claudeDirs = validDirs;
+  writeConfig(config);
+  return project;
 }
 
 export function listProjects(): ProjectEntry[] {
