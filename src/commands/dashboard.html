@@ -1499,11 +1499,12 @@
             '<span class="badge ' + badgeCls + '">' + badgeText + '</span>' +
             '<span class="meta">' +
               '<span>🌿 ' + esc(branch) + '</span>' +
-              '<span class="session-count-btn" data-mgr="' + mgrId + '">💬 ' + filtered.length + '/' + sec.sessions.length + ' 个会话</span>' +
+              '<span class="session-count-btn" data-mgr="' + mgrId + '">💬 ' + filtered.length + '/' + sec.sessions.length + ' 个会话' +
+                mgrHtml +
+              '</span>' +
             '</span>' +
             buildTimeSelectHtml(sec.name, timeHours) +
-          '</div>' +
-          mgrHtml;
+          '</div>';
 
         if (filtered.length === 0) {
           html += '<div class="session-empty">该时间范围内无对话</div>';
@@ -1547,6 +1548,8 @@
       var countBtns = contentEl.querySelectorAll('.session-count-btn');
       for (var c = 0; c < countBtns.length; c++) {
         countBtns[c].addEventListener('click', function(e) {
+          // Don't toggle if clicking inside the popover
+          if (e.target.closest('.session-manager')) return;
           e.stopPropagation();
           var mgrId = this.getAttribute('data-mgr');
           var popover = document.getElementById(mgrId);
