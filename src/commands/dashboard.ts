@@ -50,13 +50,8 @@ function renderHTML(payload: InitialPayload): string {
 
 // ── Data collection ────────────────────────────────────
 
-function isToday(date: Date): boolean {
-  const now = new Date();
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  );
+function isRecent(date: Date): boolean {
+  return (Date.now() - date.getTime()) < 6 * 60 * 60 * 1000;
 }
 
 function collectAllSessions(): ProjectSection[] {
@@ -72,8 +67,8 @@ function collectAllSessions(): ProjectSection[] {
       const summary = parseSession(file.path);
       const sessionTime = summary?.lastActiveAt || file.mtime;
 
-      // Only include today's sessions
-      if (!isToday(sessionTime)) continue;
+      // Only include sessions from the last 6 hours
+      if (!isRecent(sessionTime)) continue;
 
       if (summary) {
         sessions.push({

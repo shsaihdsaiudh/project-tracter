@@ -60,18 +60,12 @@ export function scanProject(projectPath: string): JsonlFile[] {
 }
 
 /**
- * Check if a project is "active" — has any conversation today.
+ * Check if a project is "active" — has any conversation in the last 6 hours.
  */
 export function isProjectActive(projectPath: string): boolean {
   const files = scanProject(projectPath);
   if (files.length === 0) return false;
 
-  const today = new Date();
-  const todayStart = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate(),
-  );
-
-  return files.some((f) => f.mtime >= todayStart);
+  const recentThreshold = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  return files.some((f) => f.mtime >= recentThreshold);
 }
