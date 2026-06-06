@@ -27,7 +27,7 @@ export function parseSession(filePath: string): SessionSummary | null {
   const lines = raw.split('\n');
 
   let title = '';
-  let lastUserMessage = '';
+  const userMessages: string[] = [];
   let lastActiveAt: Date | null = null;
   let branch = '';
 
@@ -53,7 +53,7 @@ export function parseSession(filePath: string): SessionSummary | null {
       if (typeof content === 'string') {
         // Skip caveat meta-messages
         if (!content.startsWith('<local-command-caveat>')) {
-          lastUserMessage = content;
+          userMessages.push(content);
         }
       } else if (Array.isArray(content)) {
         // Content blocks — look for text
@@ -61,7 +61,7 @@ export function parseSession(filePath: string): SessionSummary | null {
           .filter((c: any) => c.type === 'text' && c.text)
           .map((c: any) => c.text);
         if (texts.length > 0) {
-          lastUserMessage = texts.join(' ');
+          userMessages.push(texts.join(' '));
         }
       }
     }
@@ -87,6 +87,10 @@ export function parseSession(filePath: string): SessionSummary | null {
   const filename = filePath.split('/').pop() || filePath;
   const sessionId = filename.replace('.jsonl', '');
 
+  // Take last 3 user messages to give richer context
+  const lastUserMessages = userMessages.slice(-3).join('\n');
+  const lastUserMessage = lastUserMessages || userMessages[userMessages.length - 1] || '';
+
   if (!title && !lastUserMessage && !lastActiveAt) {
     return null;
   }
@@ -94,7 +98,7 @@ export function parseSession(filePath: string): SessionSummary | null {
   return {
     sessionId: sessionId || 'unknown',
     title: title || '(无标题)',
-    lastUserMessage: truncate(lastUserMessage, 120),
+    lastUserMessage: truncate(lastUserMessage, 500),
     lastActiveAt: lastActiveAt || new Date(0),
     branch: branch || 'unknown',
   };
