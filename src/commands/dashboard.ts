@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, resolve, join } from 'path';
 import { listProjects, addProject, removeProject, setProjectClaudeDirs, CLAUDE_VARIANTS, getReportOutputPath } from '../lib/config.js';
 import { scanProject, isProjectActive } from '../lib/scanner.js';
-import { parseSession } from '../lib/parser.js';
+import { parseSession, extractAllUserMessages } from '../lib/parser.js';
 import { relativeTime } from '../lib/formatter.js';
 
 // ── Types ──────────────────────────────────────────────
@@ -51,32 +51,51 @@ interface ReportRequest {
   hours: number;
 }
 
-function buildReportPrompt(sections: ProjectSection[], hours: number): string {
+interface ReportSession {
+  projectName: string;
+  sessionTitle: string;
+  relativeTime: string;
+  branch: string;
+  filePath: string;
+}
+
+function buildReportPrompt(sessions: ReportSession[], hours: number): string {
   const timeLabel = hours >= 168 ? '本周' : hours >= 48 ? '最近 3 天' : hours >= 24 ? '昨天' : `最近 ${hours} 小时`;
 
+  // Group by project
+  const grouped: Record<string, ReportSession[]> = {};
+  for (const s of sessions) {
+    if (!grouped[s.projectName]) grouped[s.projectName] = [];
+    grouped[s.projectName].push(s);
+  }
+
   let dataBlock = '';
-  for (const sec of sections) {
-    if (sec.sessions.length === 0) continue;
-    dataBlock += `\n## ${sec.name}\n`;
-    for (const s of sec.sessions) {
-      const time = s.relativeTime;
-      dataBlock += `\n### ${s.title}（${time}）\n`;
-      // Take first 300 chars of the last message to keep prompt reasonable
-      const msg = s.lastMessage.length > 300
-        ? s.lastMessage.substring(0, 300) + '...'
-        : s.lastMessage;
-      dataBlock += `用户最后的消息: ${msg}\n`;
+  for (const [projectName, projSessions] of Object.entries(grouped)) {
+    dataBlock += `\n## ${projectName}\n`;
+    for (const s of projSessions) {
+      // Extract ALL user messages from this session file
+      const allMessages = extractAllUserMessages(s.filePath);
+      const msgText = allMessages.length > 0
+        ? allMessages.join('\n')
+        : '(无消息)';
+
+      dataBlock += `\n### ${s.sessionTitle}（${s.relativeTime}）\n`;
+      dataBlock += `对话流程:\n${msgText}\n`;
       dataBlock += `分支: ${s.branch}\n`;
     }
   }
 
   return `你是一个开发工作日志助手。请根据以下用户与 AI 编程助手的对话记录，总结${timeLabel}的开发工作内容。
 
+每段对话记录包含完整的"对话流程"——这是用户与 AI 的完整交互过程，从上到下是按时间顺序的用户消息。
+请仔细阅读每段对话的消息流，从中推断出用户实际做了哪些工作（不仅仅是最后的结论）。
+
 格式要求：
 1. 按项目分组，每个项目一个二级标题
 2. 每个项目下列出 2-5 条关键工作项（简短的一句话）
-3. 语言自然流畅，像自己写的日报，不要机器翻译感
-4. 输出为 Markdown 格式
+3. 工作项应该反映整个对话过程中做的工作，不只是最后一条消息的内容
+4. 语言自然流畅，像自己写的日报，不要机器翻译感
+5. 输出为 Markdown 格式
 
 ## 对话记录
 ${dataBlock}
@@ -84,41 +103,87 @@ ${dataBlock}
 请直接输出日报内容，不要加前言或说明。`;
 }
 
-async function generateReport(sections: ProjectSection[], hours: number): Promise<string> {
+async function generateReport(sessions: ReportSession[], hours: number): Promise<string> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
     throw new Error('未设置 DEEPSEEK_API_KEY 环境变量');
   }
 
-  const prompt = buildReportPrompt(sections, hours);
-
-  const res = await fetch(DEEPSEEK_API, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      messages: [
-        { role: 'user', content: prompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 4096,
-    }),
-  });
-
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new Error(`DeepSeek API error ${res.status}: ${errBody}`);
+  // Group sessions by project
+  const grouped: Record<string, ReportSession[]> = {};
+  for (const s of sessions) {
+    if (!grouped[s.projectName]) grouped[s.projectName] = [];
+    grouped[s.projectName].push(s);
   }
 
-  const data = await res.json() as any;
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error('DeepSeek API 返回内容为空');
+  const projectNames = Object.keys(grouped);
+  const projectSummaries: string[] = [];
+
+  // Process each project independently
+  for (const projectName of projectNames) {
+    const projSessions = grouped[projectName];
+    const prompt = buildSingleProjectPrompt(projectName, projSessions, hours);
+
+    const res = await fetch(DEEPSEEK_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 2048,
+      }),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      throw new Error(`DeepSeek API error ${res.status} (${projectName}): ${errBody}`);
+    }
+
+    const data = await res.json() as any;
+    const content = data.choices?.[0]?.message?.content;
+    if (content) {
+      projectSummaries.push(content.trim());
+    }
   }
-  return content.trim();
+
+  // Combine all project summaries into one report
+  return projectSummaries.join('\n\n');
+}
+
+function buildSingleProjectPrompt(
+  projectName: string,
+  sessions: ReportSession[],
+  hours: number,
+): string {
+  const timeLabel = hours >= 168 ? '本周' : hours >= 48 ? '最近 3 天' : hours >= 24 ? '昨天' : `最近 ${hours} 小时`;
+
+  let dataBlock = '';
+  for (const s of sessions) {
+    const allMessages = extractAllUserMessages(s.filePath);
+    const msgText = allMessages.length > 0
+      ? allMessages.join('\n')
+      : '(无消息)';
+
+    dataBlock += `\n### ${s.sessionTitle}（${s.relativeTime}）\n`;
+    dataBlock += `对话流程:\n${msgText}\n`;
+    dataBlock += `分支: ${s.branch}\n`;
+  }
+
+  return `你是一个开发工作日志助手。以下是用户在项目「${projectName}」中${timeLabel}与 AI 编程助手的完整对话记录。
+
+每段对话记录包含"对话流程"——这是用户的消息，按时间顺序排列。
+请仔细阅读所有消息流，从中推断出用户实际完成了哪些工作。
+
+请输出该项目的工作总结：
+- 列出 2-5 条关键工作项（每条一句话）
+- 语言自然流畅，像自己写的日报
+- 只输出总结内容，不要加前言或说明`;
 }
 
 function saveReport(markdown: string, hours: number): string {
@@ -401,14 +466,13 @@ export function startDashboard(opts: { port?: string; hours?: string }): void {
       try {
         const { hours = 24 } = JSON.parse(body) as ReportRequest;
 
-        // Collect sessions across all projects for the time window
+        // Collect all sessions across all projects for the time window
         const projects = listProjects();
-        const sections: ProjectSection[] = [];
+        const reportSessions: ReportSession[] = [];
 
         for (const project of projects) {
           const claudeDirs = project.claudeDirs || ['claude'];
           const files = scanProject(project.path, claudeDirs);
-          const sessions: SessionItem[] = [];
 
           for (const file of files) {
             const summary = parseSession(file.path);
@@ -418,28 +482,17 @@ export function startDashboard(opts: { port?: string; hours?: string }): void {
             const threshold = Date.now() - hours * 60 * 60 * 1000;
             if (sessionTime.getTime() < threshold) continue;
 
-            sessions.push({
-              sessionId: summary.sessionId,
-              title: summary.title || '(无标题)',
-              lastMessage: summary.lastUserMessage || '(无消息)',
-              lastActiveAt: sessionTime.toISOString(),
+            reportSessions.push({
+              projectName: project.name,
+              sessionTitle: summary.title || '(无标题)',
               relativeTime: relativeTime(sessionTime),
               branch: summary.branch || 'unknown',
-              claudeDir: detectClaudeDir(file.path),
+              filePath: file.path,
             });
           }
-
-          sections.push({
-            name: project.name,
-            path: project.path,
-            sessions,
-            sessionCount: sessions.length,
-            isActive: sessions.length > 0,
-            claudeDirs,
-          });
         }
 
-        const markdown = await generateReport(sections, hours);
+        const markdown = await generateReport(reportSessions, hours);
         const filePath = saveReport(markdown, hours);
 
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });

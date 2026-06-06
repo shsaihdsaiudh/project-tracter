@@ -108,3 +108,45 @@ function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
   return text.substring(0, maxLen - 3) + '...';
 }
+
+/**
+ * Extract ALL user messages from a JSONL session file.
+ * For report generation — provides the full conversation arc,
+ * not just the last few messages.
+ */
+export function extractAllUserMessages(filePath: string): string[] {
+  const raw = readFileSync(filePath, 'utf-8');
+  const lines = raw.split('\n');
+  const messages: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let obj: any;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    if (obj.type === 'user' && obj.message?.content) {
+      const content = obj.message.content;
+      if (typeof content === 'string') {
+        if (!content.startsWith('<local-command-caveat>')) {
+          // Truncate each message to keep prompt reasonable
+          messages.push(truncate(content, 200));
+        }
+      } else if (Array.isArray(content)) {
+        const texts = content
+          .filter((c: any) => c.type === 'text' && c.text)
+          .map((c: any) => c.text);
+        if (texts.length > 0) {
+          messages.push(truncate(texts.join(' '), 200));
+        }
+      }
+    }
+  }
+
+  return messages;
+}
