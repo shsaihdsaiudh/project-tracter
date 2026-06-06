@@ -1550,31 +1550,38 @@
         countBtns[c].addEventListener('click', function(e) {
           // Don't toggle if clicking inside the popover
           if (e.target.closest('.session-manager')) return;
-          e.stopPropagation();
+
           var mgrId = this.getAttribute('data-mgr');
           var popover = document.getElementById(mgrId);
           if (!popover) return;
 
           // Close all other open managers
-          var allMgrs = contentEl.querySelectorAll('.session-manager.show');
+          var allMgrs = document.querySelectorAll('.session-manager.show');
           for (var m = 0; m < allMgrs.length; m++) {
             if (allMgrs[m] !== popover) allMgrs[m].classList.remove('show');
           }
 
-          // Toggle this one
-          popover.classList.toggle('show');
-
-          // Close on outside click
-          if (popover.classList.contains('show')) {
-            setTimeout(function() {
-              document.addEventListener('click', function closeMgr() {
-                popover.classList.remove('show');
-                document.removeEventListener('click', closeMgr);
-              }, { once: true });
-            }, 10);
+          // Toggle this one — use inline style for reliability
+          var isOpen = popover.classList.contains('show');
+          if (isOpen) {
+            popover.classList.remove('show');
+          } else {
+            popover.classList.add('show');
           }
+
+          e.stopPropagation();
         });
       }
+
+      // Close any open session manager on outside click
+      document.addEventListener('click', function(e) {
+        if (!e.target.closest('.session-count-btn')) {
+          var openMgrs = document.querySelectorAll('.session-manager.show');
+          for (var m = 0; m < openMgrs.length; m++) {
+            openMgrs[m].classList.remove('show');
+          }
+        }
+      });
 
       // Bind checkbox changes in session managers
       var checkboxes = contentEl.querySelectorAll('.mgr-checkbox');
