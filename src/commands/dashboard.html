@@ -646,6 +646,7 @@
       <h1>🏠 Project Tracker</h1>
       <div class="live-badge">
         <button class="report-btn" id="reportBtn" title="AI 生成日报">📝 生成日报</button>
+        <button class="report-btn" id="settingsBtn" title="设置" style="margin-right:0;">⚙</button>
         <span class="live-dot"></span>
         实时监控中
       </div>
@@ -1004,6 +1005,98 @@
     }
 
     document.getElementById('reportBtn').addEventListener('click', showReportOptions);
+
+    // ── Settings Panel ──────────────────────────────────
+
+    function showSettingsPanel() {
+      fetch('/api/report-config')
+        .then(function(r) { return r.json(); })
+        .then(function(config) {
+          var overlay = document.createElement('div');
+          overlay.className = 'modal-overlay';
+          overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+
+          var currentPath = config.outputPath;
+
+          overlay.innerHTML =
+            '<div class="modal-box" style="max-width: 480px;">' +
+              '<h3>⚙ 设置</h3>' +
+              '<div class="modal-sub" style="margin-bottom:1.2rem;">配置日报输出和笔记软件</div>' +
+
+              // Note software selector
+              '<div style="font-size:0.8rem; font-weight:600; color:#515154; margin-bottom:0.4rem;">笔记软件</div>' +
+              '<div class="modal-options" style="flex-direction:column; gap:0.35rem; margin-bottom:1rem;">' +
+                '<label class="modal-option selected" style="cursor:pointer;">' +
+                  '<input type="radio" name="noteApp" value="obsidian" checked>' +
+                  '<span class="opt-label">Obsidian<span class="opt-desc">~/.obsidian/ 自动检测 Vault</span></span>' +
+                '</label>' +
+                '<label class="modal-option" style="cursor:pointer;">' +
+                  '<input type="radio" name="noteApp" value="local">' +
+                  '<span class="opt-label">本地文件夹<span class="opt-desc">自定义输出目录</span></span>' +
+                '</label>' +
+                '<label class="modal-option" style="cursor:pointer; opacity:0.5;">' +
+                  '<input type="radio" name="noteApp" value="notion" disabled>' +
+                  '<span class="opt-label">Notion<span class="opt-desc">即将支持</span></span>' +
+                '</label>' +
+              '</div>' +
+
+              // Output path
+              '<div style="font-size:0.8rem; font-weight:600; color:#515154; margin-bottom:0.4rem;">输出路径</div>' +
+              '<div style="display:flex; gap:0.4rem; margin-bottom:1rem;">' +
+                '<input id="settingsOutputPath" style="flex:1; padding:0.4rem 0.6rem; border:1px solid #d1d1d6; border-radius:6px; font-size:0.78rem; color:#515154; background:#f5f5f7;" value="' + esc(currentPath) + '" readonly>' +
+                '<button id="settingsBrowseBtn" class="modal-btn cancel" style="padding:0.4rem 0.7rem; white-space:nowrap;">📁 浏览</button>' +
+              '</div>' +
+
+              // API key status
+              '<div style="font-size:0.72rem; color:' + (config.hasApiKey ? '#34c759' : '#ff3b30') + '; margin-bottom:1rem;">' +
+                (config.hasApiKey ? '✅ DeepSeek API Key 已配置' : '⚠️ 未配置 DeepSeek API Key（日报功能不可用）') +
+              '</div>' +
+
+              '<div class="modal-actions">' +
+                '<button class="modal-btn cancel" id="settingsCancel">取消</button>' +
+                '<button class="modal-btn primary" id="settingsSave">保存</button>' +
+              '</div>' +
+            '</div>';
+
+          document.body.appendChild(overlay);
+
+          // Browse button
+          var browseBtn = overlay.querySelector('#settingsBrowseBtn');
+          browseBtn.addEventListener('click', function() {
+            fetch('/api/browse', { method: 'POST' })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                if (data.path) {
+                  overlay.querySelector('#settingsOutputPath').value = data.path;
+                }
+              });
+          });
+
+          // Cancel
+          overlay.querySelector('#settingsCancel').addEventListener('click', function() {
+            overlay.remove();
+          });
+
+          // Save
+          overlay.querySelector('#settingsSave').addEventListener('click', function() {
+            var newPath = overlay.querySelector('#settingsOutputPath').value;
+            fetch('/api/report-config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ outputPath: newPath })
+            }).then(function(r) { return r.json(); })
+              .then(function() {
+                overlay.remove();
+                showToast('设置已保存', 'success', 3000);
+              })
+              .catch(function() {
+                showToast('保存失败', 'error', 4000);
+              });
+          });
+        });
+    }
+
+    document.getElementById('settingsBtn').addEventListener('click', showSettingsPanel);
 
     // ── Add project variant modal ───────────────────────
 

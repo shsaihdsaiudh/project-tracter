@@ -3,7 +3,7 @@ import { exec } from 'child_process';
 import { readFileSync, mkdirSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve, join } from 'path';
-import { listProjects, addProject, removeProject, setProjectClaudeDirs, CLAUDE_VARIANTS, getReportOutputPath } from '../lib/config.js';
+import { listProjects, addProject, removeProject, setProjectClaudeDirs, CLAUDE_VARIANTS, getReportOutputPath, setReportOutputPath } from '../lib/config.js';
 import { scanProject, isProjectActive } from '../lib/scanner.js';
 import { parseSession, extractAllUserMessages } from '../lib/parser.js';
 import { relativeTime } from '../lib/formatter.js';
@@ -462,12 +462,33 @@ export function startDashboard(opts: { port?: string; hours?: string }): void {
     }
 
     // GET /api/report-config — 日报配置状态
-    if (url === '/api/report-config' && method === 'GET') {
-      const hasApiKey = !!process.env.DEEPSEEK_API_KEY;
-      const outputPath = getReportOutputPath();
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ outputPath, hasApiKey }));
-      return;
+    if (url === '/api/report-config') {
+      if (method === 'GET') {
+        const hasApiKey = !!process.env.DEEPSEEK_API_KEY;
+        const outputPath = getReportOutputPath();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ outputPath, hasApiKey }));
+        return;
+      }
+
+      if (method === 'POST') {
+        const body = await readBody(req);
+        try {
+          const { outputPath } = JSON.parse(body);
+          if (!outputPath) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: '缺少 outputPath' }));
+            return;
+          }
+          setReportOutputPath(outputPath);
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: true, outputPath }));
+        } catch (e: any) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+      }
     }
 
     // POST /api/report — AI 日报生成
