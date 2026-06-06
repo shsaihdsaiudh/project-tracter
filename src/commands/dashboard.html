@@ -452,6 +452,68 @@
       color: #aeaeb2;
     }
 
+    /* Clickable session count */
+    .session-count-btn {
+      cursor: pointer;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      transition: background 0.15s;
+      position: relative;
+    }
+    .session-count-btn:hover { background: #e8f0fe; color: #007aff; }
+
+    /* Session manager popover */
+    .session-manager {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: 4px;
+      background: #ffffff;
+      border: 1px solid #e8e8ed;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.14);
+      z-index: 150;
+      min-width: 280px;
+      max-width: 380px;
+      max-height: 360px;
+      overflow-y: auto;
+      display: none;
+      padding: 0.4rem;
+    }
+    .session-manager.show { display: block; }
+    .session-mgr-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.5rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.75rem;
+      transition: background 0.1s;
+    }
+    .session-mgr-item:hover { background: #f5f5f7; }
+    .session-mgr-item input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      accent-color: #007aff;
+      flex-shrink: 0;
+    }
+    .session-mgr-item .mgr-title {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #515154;
+    }
+    .session-mgr-item .mgr-time {
+      font-size: 0.65rem;
+      color: #aeaeb2;
+      flex-shrink: 0;
+    }
+    .session-mgr-item.hidden-item {
+      opacity: 0.5;
+    }
+
     /* Time filter dropdown */
     .time-filter {
       display: flex;
@@ -1282,7 +1344,7 @@
           for (var i = 0; i < list.length; i++) {
             hiddenSessions[list[i]] = true;
           }
-          // Re-render
+          // Re-render to update session cards and counts
           if (window.__lastSections__) {
             renderContent(window.__lastSections__);
           }
@@ -1413,6 +1475,22 @@
         var timeHours = getProjectTimeFilter(sec.name);
         var filtered = filterSessions(sec.sessions, timeHours);
 
+        var mgrId = 'sessionMgr-' + sec.name.replace(/[^a-zA-Z0-9]/g, '_');
+
+        // Build session manager popover
+        var mgrHtml = '<div class="session-manager" id="' + mgrId + '">';
+        for (var s = 0; s < sec.sessions.length; s++) {
+          var ss = sec.sessions[s];
+          var h = isHidden(ss.sessionId);
+          mgrHtml +=
+            '<label class="session-mgr-item' + (h ? ' hidden-item' : '') + '">' +
+              '<input type="checkbox" ' + (h ? '' : 'checked') + ' data-sid="' + esc(ss.sessionId) + '" class="mgr-checkbox">' +
+              '<span class="mgr-title">' + esc(ss.title) + '</span>' +
+              '<span class="mgr-time">' + esc(ss.relativeTime) + '</span>' +
+            '</label>';
+        }
+        mgrHtml += '</div>';
+
         html += '<div class="project-section">';
         html +=
           '<div class="project-bar">' +
@@ -1421,10 +1499,11 @@
             '<span class="badge ' + badgeCls + '">' + badgeText + '</span>' +
             '<span class="meta">' +
               '<span>🌿 ' + esc(branch) + '</span>' +
-              '<span>💬 ' + filtered.length + '/' + sec.sessions.length + ' 个会话</span>' +
+              '<span class="session-count-btn" data-mgr="' + mgrId + '">💬 ' + filtered.length + '/' + sec.sessions.length + ' 个会话</span>' +
             '</span>' +
             buildTimeSelectHtml(sec.name, timeHours) +
-          '</div>';
+          '</div>' +
+          mgrHtml;
 
         if (filtered.length === 0) {
           html += '<div class="session-empty">该时间范围内无对话</div>';
@@ -1463,6 +1542,51 @@
 
       // Bind copy resume buttons
       bindCopyButtons(contentEl);
+
+      // Bind session count buttons (popover toggle)
+      var countBtns = contentEl.querySelectorAll('.session-count-btn');
+      for (var c = 0; c < countBtns.length; c++) {
+        countBtns[c].addEventListener('click', function(e) {
+          e.stopPropagation();
+          var mgrId = this.getAttribute('data-mgr');
+          var popover = document.getElementById(mgrId);
+          if (!popover) return;
+
+          // Close all other open managers
+          var allMgrs = contentEl.querySelectorAll('.session-manager.show');
+          for (var m = 0; m < allMgrs.length; m++) {
+            if (allMgrs[m] !== popover) allMgrs[m].classList.remove('show');
+          }
+
+          // Toggle this one
+          popover.classList.toggle('show');
+
+          // Close on outside click
+          if (popover.classList.contains('show')) {
+            setTimeout(function() {
+              document.addEventListener('click', function closeMgr() {
+                popover.classList.remove('show');
+                document.removeEventListener('click', closeMgr);
+              }, { once: true });
+            }, 10);
+          }
+        });
+      }
+
+      // Bind checkbox changes in session managers
+      var checkboxes = contentEl.querySelectorAll('.mgr-checkbox');
+      for (var k = 0; k < checkboxes.length; k++) {
+        checkboxes[k].addEventListener('change', function(e) {
+          e.stopPropagation();
+          var sid = this.getAttribute('data-sid');
+          toggleHide(sid);
+          // Update the checkbox label style immediately
+          var label = this.closest('.session-mgr-item');
+          if (label) {
+            label.classList.toggle('hidden-item', !this.checked);
+          }
+        });
+      }
 
       // Bind time filter change events
       var selects = contentEl.querySelectorAll('.time-select');
