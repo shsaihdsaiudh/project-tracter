@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, resolve, join, extname } from 'path';
 import { listProjects, addProject, removeProject, setProjectClaudeDirs, CLAUDE_VARIANTS, getReportOutputPath, setReportOutputPath, getHiddenSessions, toggleHiddenSession } from '../lib/config.js';
 import { scanProject, isProjectActive } from '../lib/scanner.js';
-import { parseSession, extractAllUserMessages } from '../lib/parser.js';
+import { parseSession, extractAllUserMessages, extractAssistantReplies, extractWorkFootprint } from '../lib/parser.js';
 import { relativeTime } from '../lib/formatter.js';
 
 // ── Types ──────────────────────────────────────────────
@@ -59,50 +59,6 @@ interface ReportSession {
   filePath: string;
 }
 
-function buildReportPrompt(sessions: ReportSession[], hours: number): string {
-  const timeLabel = hours >= 168 ? '本周' : hours >= 48 ? '最近 3 天' : hours >= 24 ? '昨天' : `最近 ${hours} 小时`;
-
-  // Group by project
-  const grouped: Record<string, ReportSession[]> = {};
-  for (const s of sessions) {
-    if (!grouped[s.projectName]) grouped[s.projectName] = [];
-    grouped[s.projectName].push(s);
-  }
-
-  let dataBlock = '';
-  for (const [projectName, projSessions] of Object.entries(grouped)) {
-    dataBlock += `\n## ${projectName}\n`;
-    for (const s of projSessions) {
-      // Extract ALL user messages from this session file
-      const allMessages = extractAllUserMessages(s.filePath);
-      const msgText = allMessages.length > 0
-        ? allMessages.join('\n')
-        : '(无消息)';
-
-      dataBlock += `\n### ${s.sessionTitle}（${s.relativeTime}）\n`;
-      dataBlock += `对话流程:\n${msgText}\n`;
-      dataBlock += `分支: ${s.branch}\n`;
-    }
-  }
-
-  return `你是一个开发工作日志助手。请根据以下用户与 AI 编程助手的对话记录，总结${timeLabel}的开发工作内容。
-
-每段对话记录包含完整的"对话流程"——这是用户与 AI 的完整交互过程，从上到下是按时间顺序的用户消息。
-请仔细阅读每段对话的消息流，从中推断出用户实际做了哪些工作（不仅仅是最后的结论）。
-
-格式要求：
-1. 按项目分组，每个项目一个二级标题
-2. 每个项目下列出 2-5 条关键工作项（简短的一句话）
-3. 工作项应该反映整个对话过程中做的工作，不只是最后一条消息的内容
-4. 语言自然流畅，像自己写的日报，不要机器翻译感
-5. 输出为 Markdown 格式
-
-## 对话记录
-${dataBlock}
-
-请直接输出日报内容，不要加前言或说明。`;
-}
-
 async function generateReport(sessions: ReportSession[], hours: number): Promise<string> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
@@ -148,7 +104,7 @@ async function generateReport(sessions: ReportSession[], hours: number): Promise
     const data = await res.json() as any;
     const content = data.choices?.[0]?.message?.content;
     if (content) {
-      projectSummaries.push(content.trim());
+      projectSummaries.push(`## ${projectName}\n\n${content.trim()}`);
     }
   }
 
@@ -164,26 +120,69 @@ function buildSingleProjectPrompt(
   const timeLabel = hours >= 168 ? '本周' : hours >= 48 ? '最近 3 天' : hours >= 24 ? '昨天' : `最近 ${hours} 小时`;
 
   let dataBlock = '';
+  let allFootprintFiles: string[] = [];
+  let allFootprintActions: string[] = [];
+
   for (const s of sessions) {
-    const allMessages = extractAllUserMessages(s.filePath);
-    const msgText = allMessages.length > 0
-      ? allMessages.join('\n')
+    const userMessages = extractAllUserMessages(s.filePath);
+    const assistantReplies = extractAssistantReplies(s.filePath);
+    const footprint = extractWorkFootprint(s.filePath);
+
+    // Collect footprint across all sessions
+    allFootprintFiles.push(...footprint.files);
+    allFootprintActions.push(...footprint.actions);
+
+    // User messages — the primary signal (user's intent and thinking)
+    const userText = userMessages.length > 0
+      ? userMessages.map((m, i) => `${i + 1}. ${m}`).join('\n')
       : '(无消息)';
 
-    dataBlock += `\n### ${s.sessionTitle}（${s.relativeTime}）\n`;
-    dataBlock += `对话流程:\n${msgText}\n`;
-    dataBlock += `分支: ${s.branch}\n`;
+    // Assistant replies — brief reference only (what was actually completed)
+    const aiText = assistantReplies.length > 0
+      ? assistantReplies.map((r, i) => `  [AI] ${r}`).join('\n')
+      : '';
+
+    // Work footprint — concrete evidence of what files were touched
+    const fpText = footprint.files.length > 0 || footprint.actions.length > 0
+      ? `涉及文件: ${footprint.files.join(', ') || '(无)'}\n使用工具: ${footprint.actions.join(', ') || '(无)'}`
+      : '';
+
+    dataBlock += `\n### ${s.sessionTitle}（${s.relativeTime}，分支: ${s.branch}）\n`;
+    dataBlock += `用户的发言:\n${userText}\n`;
+    if (aiText) {
+      dataBlock += `AI 回复（供参考）:\n${aiText}\n`;
+    }
+    if (fpText) {
+      dataBlock += `${fpText}\n`;
+    }
   }
 
-  return `你是一个开发工作日志助手。以下是用户在项目「${projectName}」中${timeLabel}与 AI 编程助手的完整对话记录。
+  // Deduplicate
+  const uniqueFiles = [...new Set(allFootprintFiles)];
+  const uniqueActions = [...new Set(allFootprintActions)];
 
-每段对话记录包含"对话流程"——这是用户的消息，按时间顺序排列。
-请仔细阅读所有消息流，从中推断出用户实际完成了哪些工作。
+  return `你是日报助手，请根据以下真实对话记录，为项目「${projectName}」输出${timeLabel}的工作总结。
 
-请输出该项目的工作总结：
-- 列出 2-5 条关键工作项（每条一句话）
-- 语言自然流畅，像自己写的日报
-- 只输出总结内容，不要加前言或说明`;
+## 数据说明
+- "用户的发言"：用户的实际消息。这是核心依据。用户说了什么、问了什么、要求了什么，你就从这里提取。
+- "AI 回复"：AI 的回答片段，用于判断用户的要求是否被实际执行了。
+- "涉及文件 / 使用工具"：AI 实际操作过的文件和工具，是工作内容的客观证据。
+
+## 关键规则（必须遵守）
+1. **只写对话中实际发生的事情**。如果对话中没有提到某个功能、某个 bug、某个模块，绝不能凭空编造。
+2. **不要使用模板化套话**。禁止写"完成了基础框架搭建""实现了核心功能模块""优化了用户体验"这类放之四海而皆准的空话。如果用户就是在修一个 toast 通知不消失的 bug，那就写"修复了日报生成后 loading toast 不消失的问题"。
+3. **用对话中的具体词汇**。用户在讨论什么，你就写什么。用户在讨论"支持 claude-internal"，你就写"支持 claude-internal"，不要自己升华成"多平台适配"。
+4. **如果没有足够信息判断工作是否完成，就不要声称已完成**。可以说"讨论了XX"，但不要说"完成了XX"除非 AI 回复中有明确证据。
+5. **2-5 条即可，少而精**。宁可只有 2 条准确的，不要凑 5 条假的。
+
+## 对话记录
+${dataBlock}
+
+## 全局足迹
+本项目涉及的文件: ${uniqueFiles.join(', ') || '(无)'}
+使用的工具类型: ${uniqueActions.join(', ') || '(无)'}
+
+请直接输出工作总结（每条一行，用 - 开头），不要加前言或说明。`;
 }
 
 function saveReport(markdown: string, hours: number): string {

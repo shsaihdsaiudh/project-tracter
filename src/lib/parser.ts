@@ -109,6 +109,16 @@ function truncate(text: string, maxLen: number): string {
   return text.substring(0, maxLen - 3) + '...';
 }
 
+/** Strip control characters, surrogates, and other problematic content that breaks JSON/API calls */
+function sanitize(text: string): string {
+  return text
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, '') // control chars (keep \n, \t)
+    .replace(/[\uD800-\uDFFF]/g, '')  // unicode surrogates (break JSON encoding)
+    .replace(/�/g, '')  // replacement character
+    .replace(/\\/g, '/') // backslash → forward slash (avoids hex escape issues in API)
+    .trim();
+}
+
 /**
  * Extract ALL user messages from a JSONL session file.
  * For report generation — provides the full conversation arc,
@@ -134,19 +144,105 @@ export function extractAllUserMessages(filePath: string): string[] {
       const content = obj.message.content;
       if (typeof content === 'string') {
         if (!content.startsWith('<local-command-caveat>')) {
-          // Truncate each message to keep prompt reasonable
-          messages.push(truncate(content, 200));
+          const clean = sanitize(content);
+          if (clean) messages.push(clean);
         }
       } else if (Array.isArray(content)) {
         const texts = content
           .filter((c: any) => c.type === 'text' && c.text)
           .map((c: any) => c.text);
         if (texts.length > 0) {
-          messages.push(truncate(texts.join(' '), 200));
+          const clean = sanitize(texts.join(' '));
+          if (clean) messages.push(clean);
         }
       }
     }
   }
 
   return messages;
+}
+
+/**
+ * Extract concise AI assistant replies from a JSONL session file.
+ * Returns the first ~200 chars of each significant assistant reply,
+ * skipping thinking blocks and short acknowledgments.
+ * These are supplementary — user messages remain the primary signal.
+ */
+export function extractAssistantReplies(filePath: string): string[] {
+  const raw = readFileSync(filePath, 'utf-8');
+  const lines = raw.split('\n');
+  const replies: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let obj: any;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    if (obj.type === 'assistant' && Array.isArray(obj.message?.content)) {
+      for (const block of obj.message.content) {
+        if (block.type === 'text' && block.text) {
+          const text = sanitize(block.text);
+          // Skip thinking blocks and very short responses
+          if (text.length > 80) {
+            replies.push(truncate(text, 200));
+          }
+        }
+      }
+    }
+  }
+
+  return replies;
+}
+
+/**
+ * Extract a lightweight "work footprint" from tool calls in the session.
+ * Returns deduplicated file names and tool action counts.
+ * This gives the report AI concrete anchors — it can't invent work
+ * that doesn't match the actual files touched.
+ */
+export function extractWorkFootprint(filePath: string): { files: string[]; actions: string[] } {
+  const raw = readFileSync(filePath, 'utf-8');
+  const lines = raw.split('\n');
+  const files = new Set<string>();
+  const actionSet = new Set<string>();
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let obj: any;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    // Tool calls are nested inside assistant messages
+    if (obj.type === 'assistant' && Array.isArray(obj.message?.content)) {
+      for (const block of obj.message.content) {
+        if (block.type === 'tool_use' && block.name) {
+          actionSet.add(block.name);
+          // Extract file paths from common tool inputs
+          const input = block.input || {};
+          const paths = input.file_path || input.filePath || input.path || input.target_directory || '';
+          if (typeof paths === 'string' && paths.length > 0) {
+            // Take just the filename from absolute paths to keep it concise
+            const parts = paths.split('/');
+            files.add(parts[parts.length - 1]);
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    files: Array.from(files).slice(0, 15),
+    actions: Array.from(actionSet),
+  };
 }
