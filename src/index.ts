@@ -53,7 +53,8 @@ program
   .alias('db')
   .description('启动 Web 看板仪表盘')
   .option('-p, --port <port>', '端口号', '3456')
-  .action((opts: { port?: string }) => {
+  .option('--hours <hours>', '活跃窗口小时数', '6')
+  .action((opts: { port?: string; hours?: string }) => {
     startDashboard(opts);
   });
 

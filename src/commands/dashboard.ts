@@ -50,8 +50,10 @@ function renderHTML(payload: InitialPayload): string {
 
 // ── Data collection ────────────────────────────────────
 
+let activeHours = 6;
+
 function isRecent(date: Date): boolean {
-  return (Date.now() - date.getTime()) < 6 * 60 * 60 * 1000;
+  return (Date.now() - date.getTime()) < activeHours * 60 * 60 * 1000;
 }
 
 function collectAllSessions(): ProjectSection[] {
@@ -60,7 +62,7 @@ function collectAllSessions(): ProjectSection[] {
 
   for (const project of projects) {
     const files = scanProject(project.path);
-    const active = isProjectActive(project.path);
+    const active = isProjectActive(project.path, activeHours);
     const sessions: SessionItem[] = [];
 
     for (const file of files) {
@@ -114,7 +116,7 @@ function collectProjects(): ProjectItem[] {
   return listProjects().map((p) => ({
     name: p.name,
     path: p.path,
-    isActive: isProjectActive(p.path),
+    isActive: isProjectActive(p.path, activeHours),
   }));
 }
 
@@ -137,15 +139,25 @@ function readBody(req: IncomingMessage): Promise<string> {
 
 // ── Server ─────────────────────────────────────────────
 
-export function startDashboard(opts: { port?: string }): void {
+export function startDashboard(opts: { port?: string; hours?: string }): void {
   const port = parseInt(opts.port || '3456', 10);
+  activeHours = parseInt(opts.hours || '6', 10);
 
   // SSE client management
   const sseClients = new Set<ServerResponse>();
+  let lastBroadcastJson = '';
 
   function broadcast() {
     const payload = collectInitialPayload();
     const json = JSON.stringify(payload);
+    if (json === lastBroadcastJson) {
+      // Data unchanged — send heartbeat only (SSE comment, ignored by browser)
+      for (const client of sseClients) {
+        client.write(':ping\n\n');
+      }
+      return;
+    }
+    lastBroadcastJson = json;
     for (const client of sseClients) {
       client.write(`data: ${json}\n\n`);
     }
@@ -268,24 +280,42 @@ export function startDashboard(opts: { port?: string }): void {
     }
   }, 5000);
 
-  server.listen(port, () => {
-    const url = `http://localhost:${port}`;
+  // Port retry: if port is in use, try next one (up to 10 attempts)
+  let actualPort = port;
+  const MAX_RETRIES = 10;
 
-    console.log('');
-    console.log('  🚀  Dashboard 已启动');
-    console.log('  ──────────────────────────────────────');
-    console.log(`  🌐  ${url}`);
-    console.log(`  📡  SSE 实时推送已启用`);
-    console.log('');
-    console.log('  按 Ctrl+C 停止');
-    console.log('');
+  function tryListen(currentPort: number) {
+    server.listen(currentPort)
+      .once('listening', () => {
+        actualPort = currentPort;
+        const url = `http://localhost:${actualPort}`;
 
-    exec(`open ${url}`, (err) => {
-      if (err) {
-        console.log(`  请在浏览器中打开: ${url}`);
-      }
-    });
-  });
+        console.log('');
+        console.log('  🚀  Dashboard 已启动');
+        console.log('  ──────────────────────────────────────');
+        console.log(`  🌐  ${url}`);
+        console.log(`  📡  SSE 实时推送已启用  (${activeHours}h 活跃窗口)`);
+        console.log('');
+        console.log('  按 Ctrl+C 停止');
+        console.log('');
+
+        exec(`open ${url}`, (err) => {
+          if (err) {
+            console.log(`  请在浏览器中打开: ${url}`);
+          }
+        });
+      })
+      .once('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE' && currentPort - port < MAX_RETRIES) {
+          tryListen(currentPort + 1);
+        } else {
+          console.error(`  ✗ 无法启动: 端口 ${port}-${currentPort} 均被占用`);
+          process.exit(1);
+        }
+      });
+  }
+
+  tryListen(port);
 
   const shutdown = () => {
     console.log('\n  👋 Dashboard 已停止');
