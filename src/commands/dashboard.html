@@ -1453,6 +1453,21 @@
 
     // ── Content (list layout) ──────────────────────────
 
+    // Session manager — global document click (registered once)
+    var _mgrDocListener = null;
+    function ensureSessionMgrDocListener() {
+      if (_mgrDocListener) return;
+      _mgrDocListener = function(e) {
+        if (!e.target.closest('.session-count-btn')) {
+          var openMgrs = document.querySelectorAll('.session-manager.show');
+          for (var m = 0; m < openMgrs.length; m++) {
+            openMgrs[m].classList.remove('show');
+          }
+        }
+      };
+      document.addEventListener('click', _mgrDocListener);
+    }
+
     function renderContent(sections) {
       var contentEl = document.getElementById('content');
       var emptyEl = document.getElementById('empty');
@@ -1573,15 +1588,8 @@
         });
       }
 
-      // Close any open session manager on outside click
-      document.addEventListener('click', function(e) {
-        if (!e.target.closest('.session-count-btn')) {
-          var openMgrs = document.querySelectorAll('.session-manager.show');
-          for (var m = 0; m < openMgrs.length; m++) {
-            openMgrs[m].classList.remove('show');
-          }
-        }
-      });
+      // Ensure document click listener is registered (only once)
+      ensureSessionMgrDocListener();
 
       // Bind checkbox changes in session managers
       var checkboxes = contentEl.querySelectorAll('.mgr-checkbox');
