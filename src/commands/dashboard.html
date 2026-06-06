@@ -440,7 +440,52 @@
       font-size: 0.83rem;
       color: #515154;
       font-weight: 600;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
     }
+    .session-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+    .copy-resume-btn {
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 0.2rem 0.55rem;
+      border: 1px solid #d1d1d6;
+      background: #ffffff;
+      color: #86868b;
+      border-radius: 5px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+      opacity: 0;
+    }
+    .session-row:hover .copy-resume-btn { opacity: 1; }
+    .copy-resume-btn:hover { border-color: #007aff; color: #007aff; background: #f0f6ff; }
+    .copy-resume-btn.copied { border-color: #34c759; color: #34c759; background: #e8f5e9; }
+    .session-meta-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.68rem;
+      color: #aeaeb2;
+      margin-top: 0.25rem;
+    }
+    .session-claude-tag {
+      font-size: 0.6rem;
+      font-weight: 600;
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      background: #f0f0f2;
+      color: #86868b;
+      text-transform: lowercase;
+    }
+    .session-claude-tag.claude-internal { background: #fff3e0; color: #e65100; }
     .session-message {
       font-size: 0.8rem;
       color: #6e6e73;
@@ -878,6 +923,51 @@
       return html;
     }
 
+    // ── Copy resume ─────────────────────────────────────
+
+    function copyResume(cmd) {
+      // Use Clipboard API if available
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(cmd).catch(function() {
+          fallbackCopy(cmd);
+        });
+      } else {
+        fallbackCopy(cmd);
+      }
+    }
+
+    function fallbackCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+
+    function bindCopyButtons(rootEl) {
+      var btns = rootEl.querySelectorAll('.copy-resume-btn');
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].addEventListener('click', function(e) {
+          e.stopPropagation();
+          var cmd = this.getAttribute('data-cmd');
+          copyResume(cmd);
+
+          // Visual feedback: briefly show "已复制"
+          var origText = this.textContent;
+          this.textContent = '✓ 已复制';
+          this.classList.add('copied');
+          var self = this;
+          setTimeout(function() {
+            self.textContent = origText;
+            self.classList.remove('copied');
+          }, 2000);
+        });
+      }
+    }
+
     // ── Content (list layout) ──────────────────────────
 
     function renderContent(sections) {
@@ -923,13 +1013,22 @@
           var s = filtered[j];
           var cls = getTimeClass(s.lastActiveAt);
           var liveCls = getTimeLiveClass(s.lastActiveAt);
+          var resumeCmd = (s.claudeDir || 'claude') + ' --resume ' + s.sessionId;
+          var claudeTagCls = (s.claudeDir === 'claude-internal') ? ' claude-internal' : '';
           html +=
             '<div class="session-row ' + cls + '">' +
               '<div class="session-top">' +
                 '<span class="session-topic">' + esc(s.title) + '</span>' +
-                '<span class="session-time' + liveCls + '">' + esc(s.relativeTime) + '</span>' +
+                '<span class="session-actions">' +
+                  '<button class="copy-resume-btn" data-cmd="' + esc(resumeCmd) + '">📋 复制 resume</button>' +
+                  '<span class="session-time' + liveCls + '">' + esc(s.relativeTime) + '</span>' +
+                '</span>' +
               '</div>' +
               '<div class="session-message">── "' + esc(s.lastMessage) + '"</div>' +
+              '<div class="session-meta-row">' +
+                '<span class="session-claude-tag' + claudeTagCls + '">' + esc(s.claudeDir || 'claude') + '</span>' +
+                '<span>🌿 ' + esc(s.branch || 'unknown') + '</span>' +
+              '</div>' +
             '</div>';
         }
 
@@ -937,6 +1036,9 @@
       }
 
       contentEl.innerHTML = html;
+
+      // Bind copy resume buttons
+      bindCopyButtons(contentEl);
 
       // Bind time filter change events
       var selects = contentEl.querySelectorAll('.time-select');

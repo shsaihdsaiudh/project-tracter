@@ -17,6 +17,8 @@ interface SessionItem {
   lastActiveAt: string;
   relativeTime: string;
   branch: string;
+  /** Which Claude variant this session came from: "claude" | "claude-internal" */
+  claudeDir: string;
 }
 
 interface ProjectSection {
@@ -54,6 +56,12 @@ function renderHTML(payload: InitialPayload): string {
 
 let activeHours = 6;
 
+/** Detect which Claude variant a session file belongs to from its path */
+function detectClaudeDir(filePath: string): string {
+  if (filePath.includes('/.claude-internal/')) return 'claude-internal';
+  return 'claude';
+}
+
 function isRecent(date: Date): boolean {
   return (Date.now() - date.getTime()) < activeHours * 60 * 60 * 1000;
 }
@@ -72,6 +80,8 @@ function collectAllSessions(): ProjectSection[] {
       const summary = parseSession(file.path);
       const sessionTime = summary?.lastActiveAt || file.mtime;
 
+      const claudeDir = detectClaudeDir(file.path);
+
       if (summary) {
         sessions.push({
           sessionId: summary.sessionId,
@@ -80,6 +90,7 @@ function collectAllSessions(): ProjectSection[] {
           lastActiveAt: (summary.lastActiveAt || file.mtime).toISOString(),
           relativeTime: relativeTime(summary.lastActiveAt || file.mtime),
           branch: summary.branch || 'unknown',
+          claudeDir,
         });
       } else {
         sessions.push({
@@ -89,6 +100,7 @@ function collectAllSessions(): ProjectSection[] {
           lastActiveAt: file.mtime.toISOString(),
           relativeTime: relativeTime(file.mtime),
           branch: 'unknown',
+          claudeDir,
         });
       }
     }
