@@ -50,6 +50,7 @@ const DEEPSEEK_MODEL = 'deepseek-chat';
 
 interface ReportRequest {
   hours: number;
+  today?: boolean; // 当为 true 时，时间范围从今天凌晨 4 点算起，而非过去 N 小时
 }
 
 interface ReportSession {
@@ -60,7 +61,7 @@ interface ReportSession {
   filePath: string;
 }
 
-async function generateReport(sessions: ReportSession[], hours: number): Promise<string> {
+async function generateReport(sessions: ReportSession[], hours: number, today = false): Promise<string> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
     throw new Error('未设置 DEEPSEEK_API_KEY 环境变量');
@@ -79,7 +80,7 @@ async function generateReport(sessions: ReportSession[], hours: number): Promise
   // Process each project independently
   for (const projectName of projectNames) {
     const projSessions = grouped[projectName];
-    const prompt = buildSingleProjectPrompt(projectName, projSessions, hours);
+    const prompt = buildSingleProjectPrompt(projectName, projSessions, hours, today);
 
     const res = await fetch(DEEPSEEK_API, {
       method: 'POST',
@@ -117,8 +118,11 @@ function buildSingleProjectPrompt(
   projectName: string,
   sessions: ReportSession[],
   hours: number,
+  today = false,
 ): string {
-  const timeLabel = hours >= 168 ? '本周' : hours >= 48 ? '最近 3 天' : hours >= 24 ? '昨天' : `最近 ${hours} 小时`;
+  const timeLabel = today
+    ? '今天'
+    : hours >= 168 ? '本周' : hours >= 48 ? '最近 3 天' : hours >= 24 ? '昨天' : `最近 ${hours} 小时`;
 
   let dataBlock = '';
   let allFootprintFiles: string[] = [];
@@ -186,7 +190,7 @@ ${dataBlock}
 请直接输出工作总结（每条一行，用 - 开头），不要加前言或说明。`;
 }
 
-function saveReport(markdown: string, hours: number): string {
+function saveReport(markdown: string, hours: number, today = false): string {
   const outputDir = getReportOutputPath();
   mkdirSync(outputDir, { recursive: true });
 
@@ -196,7 +200,10 @@ function saveReport(markdown: string, hours: number): string {
   const filePath = join(outputDir, filename);
 
   // Add a header with generation info
-  const header = `# 工作日报 — ${dateStr}\n\n> 自动生成 · 覆盖最近 ${hours} 小时的对话\n\n---\n\n`;
+  const timeDesc = today
+    ? '今天（凌晨 4 点至今）'
+    : `最近 ${hours} 小时`;
+  const header = `# 工作日报 — ${dateStr}\n\n> 自动生成 · ${timeDesc}\n\n---\n\n`;
   writeFileSync(filePath, header + markdown, 'utf-8');
 
   return filePath;
@@ -548,7 +555,21 @@ export function startDashboard(opts: { port?: string; hours?: string; apiOnly?: 
     if (url === '/api/report' && method === 'POST') {
       const body = await readBody(req);
       try {
-        const { hours = 24 } = JSON.parse(body) as ReportRequest;
+        const { hours = 24, today = false } = JSON.parse(body) as ReportRequest;
+
+        // 计算时间阈值：如果是"今天"模式，从凌晨 4 点算起；否则用过去 N 小时
+        let threshold: number;
+        if (today) {
+          const now = new Date();
+          const fourAM = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 4, 0, 0, 0);
+          // 如果当前时间还没到今天凌晨 4 点（比如凌晨 2 点），用昨天的凌晨 4 点
+          if (now < fourAM) {
+            fourAM.setDate(fourAM.getDate() - 1);
+          }
+          threshold = fourAM.getTime();
+        } else {
+          threshold = Date.now() - hours * 60 * 60 * 1000;
+        }
 
         // Collect all sessions across all projects for the time window
         const projects = listProjects();
@@ -563,7 +584,6 @@ export function startDashboard(opts: { port?: string; hours?: string; apiOnly?: 
             if (!summary) continue;
 
             const sessionTime = summary.lastActiveAt || file.mtime;
-            const threshold = Date.now() - hours * 60 * 60 * 1000;
             if (sessionTime.getTime() < threshold) continue;
 
             reportSessions.push({
@@ -576,8 +596,8 @@ export function startDashboard(opts: { port?: string; hours?: string; apiOnly?: 
           }
         }
 
-        const markdown = await generateReport(reportSessions, hours);
-        const filePath = saveReport(markdown, hours);
+        const markdown = await generateReport(reportSessions, hours, today);
+        const filePath = saveReport(markdown, hours, today);
 
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ ok: true, filePath, content: markdown }));

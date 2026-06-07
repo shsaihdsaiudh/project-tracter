@@ -64,11 +64,11 @@ export async function saveReportConfig(outputPath: string): Promise<void> {
   if (!res.ok) throw new Error(`POST /api/report-config: ${res.status}`);
 }
 
-export async function generateReport(hours: number): Promise<{ ok: boolean; filePath: string; content: string }> {
+export async function generateReport(hours: number, today = false): Promise<{ ok: boolean; filePath: string; content: string }> {
   const res = await fetch(`${BASE}/report`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ hours }),
+    body: JSON.stringify({ hours, today }),
   });
   if (!res.ok) throw new Error(`POST /api/report: ${res.status}`);
   return res.json();

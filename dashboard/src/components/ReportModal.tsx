@@ -22,11 +22,11 @@ export function ReportModal({ open, onClose }: Props) {
     }
   }, [open, onClose, showToast]);
 
-  const handleGenerate = async (hours: number) => {
+  const handleGenerate = async (hours: number, today = false) => {
     onClose();
     const loadingId = showToast("正在生成日报，请稍候...", "loading", 0);
     try {
-      await generateReport(hours);
+      await generateReport(hours, today);
       removeToast(loadingId);
       showToast("日报已生成", "success");
     } catch (err: any) {
@@ -35,9 +35,15 @@ export function ReportModal({ open, onClose }: Props) {
     }
   };
 
+  // 计算"今天凌晨 4 点"至今的小时数
+  const now = new Date();
+  const fourAM = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 4, 0, 0, 0);
+  if (now < fourAM) fourAM.setDate(fourAM.getDate() - 1); // 还没到凌晨 4 点则用昨天
+  const todayHours = Math.max(1, Math.round((now.getTime() - fourAM.getTime()) / 3600000));
+
   const timeOptions = [
     { label: "最近 6 小时", hours: 6 },
-    { label: "今天（24 小时）", hours: 24 },
+    { label: `今天（自凌晨 4 点，约 ${todayHours}h）`, hours: todayHours, today: true },
     { label: "昨天 + 今天", hours: 48 },
     { label: "本周", hours: 168 },
   ];
@@ -51,7 +57,7 @@ export function ReportModal({ open, onClose }: Props) {
           <button
             key={opt.hours}
             className="opt-item w-full text-left px-3 py-2.5 rounded border text-xs cursor-pointer"
-            onClick={() => handleGenerate(opt.hours)}
+            onClick={() => handleGenerate(opt.hours, (opt as any).today)}
           >
             {opt.label}
           </button>
