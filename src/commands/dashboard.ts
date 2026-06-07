@@ -1,11 +1,12 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { exec } from 'child_process';
 import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync } from 'fs';
+import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { dirname, resolve, join, extname } from 'path';
 import { listProjects, addProject, removeProject, setProjectClaudeDirs, CLAUDE_VARIANTS, getReportOutputPath, setReportOutputPath, getHiddenSessions, toggleHiddenSession } from '../lib/config.js';
-import { scanProject, isProjectActive } from '../lib/scanner.js';
-import { parseSession, extractAllUserMessages, extractAssistantReplies, extractWorkFootprint } from '../lib/parser.js';
+import { scanProject, isProjectActive, slugifyPath } from '../lib/scanner.js';
+import { parseSession, extractAllUserMessages, extractAssistantReplies, extractWorkFootprint, parseSessionMessages } from '../lib/parser.js';
 import { relativeTime } from '../lib/formatter.js';
 
 // ── Types ──────────────────────────────────────────────
@@ -604,6 +605,51 @@ export function startDashboard(opts: { port?: string; hours?: string; apiOnly?: 
       } else {
         res.writeHead(404);
         res.end(JSON.stringify({ error: '未找到项目: ' + name }));
+      }
+      return;
+    }
+
+    // GET /api/sessions/:sessionId — full conversation detail
+    if (url.startsWith('/api/sessions/') && method === 'GET') {
+      const urlObj = new URL(url, `http://localhost:${actualPort}`);
+      const pathPart = url.replace('/api/sessions/', '');
+      const sessionId = pathPart.split('?')[0];
+      const projectName = urlObj.searchParams.get('project');
+      const claudeDir = urlObj.searchParams.get('claudeDir') || 'claude';
+
+      if (!sessionId || !projectName) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: '缺少 sessionId 或 project 参数' }));
+        return;
+      }
+
+      // Resolve project path from config
+      const allProjects = listProjects();
+      const project = allProjects.find((p) => p.name === projectName);
+      if (!project) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: '未找到项目: ' + projectName }));
+        return;
+      }
+
+      // Construct the JSONL file path
+      const homeDirName = CLAUDE_VARIANTS[claudeDir] || `.${claudeDir}`;
+      const slug = slugifyPath(resolve(project.path));
+      const jsonlPath = resolve(homedir(), homeDirName, 'projects', slug, `${sessionId}.jsonl`);
+
+      if (!existsSync(jsonlPath)) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: '会话文件不存在' }));
+        return;
+      }
+
+      try {
+        const detail = parseSessionMessages(jsonlPath);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(detail));
+      } catch (e: any) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: e.message || '解析会话失败' }));
       }
       return;
     }

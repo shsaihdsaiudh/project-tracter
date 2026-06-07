@@ -6,6 +6,7 @@ interface Props {
   hidden: boolean;
   onToggleHide: (sessionId: string) => void;
   onCopyResume: (cmd: string) => void;
+  onClick?: () => void;
 }
 
 function getTimeClass(iso: string): "recent" | "today" | "older" {
@@ -15,13 +16,14 @@ function getTimeClass(iso: string): "recent" | "today" | "older" {
   return "older";
 }
 
-export function SessionCard({ session, hidden, onToggleHide, onCopyResume }: Props) {
+export function SessionCard({ session, hidden, onToggleHide, onCopyResume, onClick }: Props) {
   const [copied, setCopied] = useState(false);
   const timeClass = getTimeClass(session.lastActiveAt);
   const isClaudeInternal = session.claudeDir === "claude-internal";
   const resumeCmd = `${session.claudeDir || "claude"} --resume ${session.sessionId}`;
 
-  const handleCopy = () => {
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
     onCopyResume(resumeCmd);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -43,11 +45,12 @@ export function SessionCard({ session, hidden, onToggleHide, onCopyResume }: Pro
 
   return (
     <div
-      className="session-row rounded p-3 mb-1 group relative"
+      className="session-row rounded p-3 mb-1 group relative cursor-pointer"
       style={{
         borderLeft: `2px solid ${borderColor}`,
         opacity: hidden ? 0.4 : 1,
       }}
+      onClick={onClick}
     >
       {/* Top row */}
       <div className="flex items-center justify-between mb-1.5">
@@ -64,7 +67,10 @@ export function SessionCard({ session, hidden, onToggleHide, onCopyResume }: Pro
           </button>
           <button
             className="action-btn hide-btn"
-            onClick={() => onToggleHide(session.sessionId)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleHide(session.sessionId);
+            }}
           >
             {hidden ? "取消隐藏" : "隐藏"}
           </button>

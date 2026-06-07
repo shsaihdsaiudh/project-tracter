@@ -1,4 +1,4 @@
-import type { InitialPayload, ProjectSection, ReportConfig } from "./types";
+import type { InitialPayload, ProjectSection, ReportConfig, SessionDetail } from "./types";
 
 const BASE = "/api";
 
@@ -88,6 +88,19 @@ export async function toggleHiddenSession(sessionId: string): Promise<string[]> 
 export async function browseFolder(): Promise<{ path: string | null }> {
   const res = await fetch(`${BASE}/browse`, { method: "POST" });
   if (!res.ok) throw new Error(`POST /api/browse: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchSessionDetail(
+  sessionId: string,
+  projectName: string,
+  claudeDir: string,
+): Promise<SessionDetail> {
+  const params = new URLSearchParams({ project: projectName, claudeDir });
+  const res = await fetch(
+    `${BASE}/sessions/${encodeURIComponent(sessionId)}?${params}`,
+  );
+  if (!res.ok) throw new Error(`GET /api/sessions: ${res.status}`);
   return res.json();
 }
 

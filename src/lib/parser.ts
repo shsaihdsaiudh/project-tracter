@@ -1,5 +1,7 @@
 import { readFileSync } from 'fs';
 
+// ── Session Summary (existing) ──────────────────────────
+
 export interface SessionSummary {
   sessionId: string;
   title: string;
@@ -245,4 +247,175 @@ export function extractWorkFootprint(filePath: string): { files: string[]; actio
     files: Array.from(files).slice(0, 15),
     actions: Array.from(actionSet),
   };
+}
+
+// ── Full Session Messages ───────────────────────────────
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp?: string;
+  toolUses?: { name: string; summary: string }[];
+}
+
+export interface SessionFull {
+  sessionId: string;
+  title: string;
+  branch: string;
+  messages: ChatMessage[];
+}
+
+/**
+ * Parse a JSONL session file to extract the complete conversation
+ * (user messages + assistant replies, interleaved in chronological order).
+ *
+ * Assistant tool_use blocks are extracted as compact labels with the
+ * tool name and target file (when detectable).
+ */
+export function parseSessionMessages(filePath: string): SessionFull {
+  const raw = readFileSync(filePath, 'utf-8');
+  const lines = raw.split('\n');
+
+  let title = '';
+  let branch = '';
+  const messages: ChatMessage[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let obj: any;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    // Extract title
+    if (obj.type === 'ai-title' && obj.aiTitle) {
+      title = obj.aiTitle;
+      continue;
+    }
+
+    // Extract branch
+    if (obj.gitBranch && !branch) {
+      branch = obj.gitBranch;
+    }
+
+    // Timestamp
+    const timestamp = obj.timestamp
+      ? new Date(obj.timestamp).toISOString()
+      : undefined;
+
+    // ── User message ──────────────────────────────
+    if (obj.type === 'user' && obj.message?.content) {
+      const content = extractTextContent(obj.message.content);
+      if (content) {
+        messages.push({ role: 'user', content, timestamp });
+      }
+      continue;
+    }
+
+    // ── Assistant message ─────────────────────────
+    if (obj.type === 'assistant' && Array.isArray(obj.message?.content)) {
+      const textParts: string[] = [];
+      const toolUses: { name: string; summary: string }[] = [];
+
+      for (const block of obj.message.content) {
+        if (block.type === 'text' && block.text) {
+          textParts.push(block.text);
+        } else if (block.type === 'tool_use' && block.name) {
+          toolUses.push({
+            name: block.name,
+            summary: toolUseSummary(block.name, block.input || {}),
+          });
+        }
+      }
+
+      const content = textParts.join('\n').trim();
+      // 只有有实际文字内容时才加入消息列表，纯工具调用不显示
+      if (content) {
+        messages.push({
+          role: 'assistant',
+          content,
+          timestamp,
+        });
+      }
+      continue;
+    }
+  }
+
+  // Extract session ID from filename
+  const filename = filePath.split('/').pop() || filePath;
+  const sessionId = filename.replace('.jsonl', '');
+
+  return {
+    sessionId: sessionId || 'unknown',
+    title: title || '(无标题)',
+    branch: branch || 'unknown',
+    messages,
+  };
+}
+
+/** Extract plain text from a user message content (string or ContentBlock[]) */
+function extractTextContent(content: any): string {
+  if (typeof content === 'string') {
+    if (content.startsWith('<local-command-caveat>')) return '';
+    return sanitize(content);
+  }
+  if (Array.isArray(content)) {
+    const texts = content
+      .filter((c: any) => c.type === 'text' && c.text)
+      .map((c: any) => c.text);
+    return texts.length > 0 ? sanitize(texts.join(' ')) : '';
+  }
+  return '';
+}
+
+/**
+ * Build a compact one-line summary of a tool call for display.
+ * Examples:
+ *   "Read src/foo.ts"
+ *   "Edit src/bar.ts"
+ *   "Bash npm install"
+ *   "Grep 'pattern' in 3 files"
+ */
+function toolUseSummary(toolName: string, input: Record<string, any>): string {
+  const path = input.file_path || input.filePath || input.path || '';
+  const fileName = path ? path.split('/').pop() || path : '';
+
+  switch (toolName) {
+    case 'Read':
+      return fileName ? `Read ${fileName}` : 'Read';
+    case 'Write':
+      return fileName ? `Write ${fileName}` : 'Write';
+    case 'Edit':
+      return fileName ? `Edit ${fileName}` : 'Edit';
+    case 'Bash':
+      // Show first 50 chars of command
+      if (input.command) {
+        const cmd = typeof input.command === 'string'
+          ? input.command
+          : input.command.description || JSON.stringify(input.command);
+        const short = cmd.length > 50 ? cmd.substring(0, 50) + '...' : cmd;
+        return `Bash ${short}`;
+      }
+      return 'Bash';
+    case 'Grep':
+      return input.pattern ? `Grep "${input.pattern}"` : 'Grep';
+    case 'Glob':
+      return input.pattern ? `Glob ${input.pattern}` : 'Glob';
+    case 'LS':
+      return 'LS';
+    case 'WebFetch':
+      return input.url ? `WebFetch ${input.url.split('/').pop() || input.url}` : 'WebFetch';
+    case 'WebSearch':
+      return input.query ? `WebSearch "${input.query.substring(0, 40)}"` : 'WebSearch';
+    case 'Task':
+      return input.subject || 'Task';
+    case 'Agent':
+      return input.description || 'Agent';
+    default:
+      return fileName ? `${toolName} ${fileName}` : toolName;
+  }
 }

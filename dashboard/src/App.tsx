@@ -7,6 +7,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { ReportModal } from "./components/ReportModal";
 import { AddProjectModal } from "./components/AddProjectModal";
 import { SettingsPopover } from "./components/SettingsPopover";
+import { SessionDetail } from "./components/SessionDetail";
 import {
   subscribeSSE,
   removeProject,
@@ -46,6 +47,11 @@ function AppInner() {
   const [reportOpen, setReportOpen] = useState(false);
   const [addProjectPath, setAddProjectPath] = useState("");
   const [addProjectOpen, setAddProjectOpen] = useState(false);
+
+  // Session detail state
+  const [detailSessionId, setDetailSessionId] = useState<string | null>(null);
+  const [detailProject, setDetailProject] = useState("");
+  const [detailClaudeDir, setDetailClaudeDir] = useState("claude");
 
   // Settings popover state
   const [popoverProject, setPopoverProject] = useState<string | null>(null);
@@ -146,6 +152,15 @@ function AppInner() {
     }
   }, []);
 
+  const handleSessionClick = useCallback(
+    (sessionId: string, projectName: string, claudeDir: string) => {
+      setDetailSessionId(sessionId);
+      setDetailProject(projectName);
+      setDetailClaudeDir(claudeDir);
+    },
+    [],
+  );
+
   const handleSettings = useCallback((name: string, anchor: HTMLElement) => {
     setPopoverProject(name);
     setPopoverAnchor(anchor);
@@ -229,6 +244,16 @@ function AppInner() {
               onTimeChange={handleTimeChange}
               onToggleHide={handleToggleHide}
               onCopyResume={handleCopyResume}
+              onSessionClick={(sessionId) => {
+                const s = sec.sessions.find(
+                  (sess) => sess.sessionId === sessionId,
+                );
+                handleSessionClick(
+                  sessionId,
+                  sec.name,
+                  s?.claudeDir || "claude",
+                );
+              }}
             />
           ))
         )}
@@ -247,6 +272,16 @@ function AppInner() {
           {lastUpdate ? `最后更新 ${lastUpdate}` : "正在连接..."}
         </div>
       </div>
+
+      {/* Session detail */}
+      {detailSessionId && (
+        <SessionDetail
+          sessionId={detailSessionId}
+          projectName={detailProject}
+          claudeDir={detailClaudeDir}
+          onClose={() => setDetailSessionId(null)}
+        />
+      )}
 
       {/* Modals */}
       <SettingsModal

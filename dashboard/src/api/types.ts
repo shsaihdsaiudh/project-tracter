@@ -34,3 +34,24 @@ export interface ReportConfig {
   hasApiKey: boolean;
   hiddenSessions: string[];
 }
+
+// ── Session Detail (full conversation) ──────────────────
+
+export interface ToolUse {
+  name: string;
+  summary: string;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp?: string;
+  toolUses?: ToolUse[];
+}
+
+export interface SessionDetail {
+  sessionId: string;
+  title: string;
+  branch: string;
+  messages: ChatMessage[];
+}

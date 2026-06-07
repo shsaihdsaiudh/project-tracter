@@ -20,6 +20,7 @@ interface Props {
   onTimeChange: (projectName: string, hours: number) => void;
   onToggleHide: (sessionId: string) => void;
   onCopyResume: (cmd: string) => void;
+  onSessionClick?: (sessionId: string) => void;
 }
 
 export function ProjectSectionComp({
@@ -30,6 +31,7 @@ export function ProjectSectionComp({
   onTimeChange,
   onToggleHide,
   onCopyResume,
+  onSessionClick,
 }: Props) {
   const [mgrOpen, setMgrOpen] = useState(false);
   const mgrRef = useRef<HTMLDivElement>(null);
@@ -208,6 +210,7 @@ export function ProjectSectionComp({
             hidden={!!hiddenSessions[s.sessionId]}
             onToggleHide={onToggleHide}
             onCopyResume={onCopyResume}
+            onClick={onSessionClick ? () => onSessionClick(s.sessionId) : undefined}
           />
         ))
       )}
