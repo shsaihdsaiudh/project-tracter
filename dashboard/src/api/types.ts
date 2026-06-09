@@ -3,6 +3,8 @@ export interface ProjectItem {
   path: string;
   isActive: boolean;
   claudeDirs: string[];
+  /** Desktop notifications enabled when an assistant turn completes */
+  notifyEnabled: boolean;
 }
 
 export interface SessionItem {

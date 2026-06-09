@@ -15,6 +15,7 @@ import {
   browseFolder,
   fetchReportConfig,
   updateClaudeDirs,
+  setNotifyEnabled,
 } from "./api/client";
 import type {
   InitialPayload,
@@ -60,6 +61,26 @@ function AppInner() {
   // Footer timer
   const footerRef = useRef<HTMLDivElement>(null);
 
+  // ── Notifications ───────────────────────────────────
+  // Keep a ref to the current projects list so the SSE turn-complete
+  // callback (which is captured once at mount time) can read the
+  // latest notifyEnabled flags without resubscribing on every change.
+  const projectsRef = useRef<ProjectItem[]>([]);
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
+
+  // Re-render the permission banner when status changes (we don't poll —
+  // we just snapshot it once and update after the user clicks "enable").
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | "unsupported">(
+    () => (typeof Notification !== "undefined" ? Notification.permission : "unsupported"),
+  );
+
+  // De-dupe guard: even with the backend's lastSeenTurns map, a tab that
+  // re-mounts (HMR, navigation, etc.) starts a fresh EventSource and
+  // could re-receive a turn-complete it just showed. Track recent uuids.
+  const shownTurnUuids = useRef<Set<string>>(new Set());
+
   // Load hidden sessions on mount
   useEffect(() => {
     fetchReportConfig().then((config) => {
@@ -71,16 +92,116 @@ function AppInner() {
 
   // SSE subscription
   useEffect(() => {
-    const unsub = subscribeSSE((data: InitialPayload) => {
-      setProjects(data.projects);
-      setSections(data.sections);
-      setConnected(true);
-      setLastUpdate(
-        new Date().toLocaleTimeString("zh-CN", { hour12: false }),
-      );
-    });
+    const unsub = subscribeSSE(
+      (data: InitialPayload) => {
+        setProjects(data.projects);
+        setSections(data.sections);
+        setConnected(true);
+        setLastUpdate(
+          new Date().toLocaleTimeString("zh-CN", { hour12: false }),
+        );
+      },
+      // Turn-complete handler: fire a desktop notification IF the
+      // originating project has the bell on AND the user has granted
+      // permission. Reads `projectsRef.current` rather than `projects`
+      // because this callback is captured once at mount.
+      (event) => {
+        // Quick de-dupe in case the same uuid arrives twice (e.g. brief
+        // disconnect + reconnect during a single turn).
+        if (shownTurnUuids.current.has(event.turnUuid)) return;
+        shownTurnUuids.current.add(event.turnUuid);
+        // Bound the cache so it doesn't grow unbounded across long sessions.
+        if (shownTurnUuids.current.size > 500) {
+          const first = shownTurnUuids.current.values().next().value;
+          if (first !== undefined) shownTurnUuids.current.delete(first);
+        }
+
+        const proj = projectsRef.current.find(
+          (p) => p.name === event.projectName,
+        );
+        if (!proj?.notifyEnabled) return;
+
+        if (
+          typeof Notification === "undefined" ||
+          Notification.permission !== "granted"
+        ) {
+          return;
+        }
+
+        const body = event.preview
+          ? event.preview
+          : "Claude 这一轮回复完了，可以查看结果";
+
+        try {
+          const n = new Notification(`✦ ${event.projectName}`, {
+            body,
+            // Tag dedupes notifications per session — if the user gets a
+            // notification, ignores it, then Claude finishes another
+            // turn in the same session, the new one replaces the old in
+            // the system tray rather than stacking.
+            tag: `pt-${event.sessionId}`,
+            // Prevent the OS from auto-dismissing — these are async
+            // long-running tasks the user actually wants to see.
+            requireInteraction: false,
+          });
+          n.onclick = () => {
+            // Bring the dashboard tab forward and let the user follow up.
+            window.focus();
+            n.close();
+          };
+        } catch (e) {
+          console.error("[notify] failed to fire notification", e);
+        }
+      },
+    );
     return unsub;
   }, []);
+
+  // Permission helper — invoked from the banner button. Async so the user
+  // sees the OS prompt; we update local state with the resolved verdict.
+  const handleEnableNotifications = useCallback(async () => {
+    if (typeof Notification === "undefined") return;
+    try {
+      const result = await Notification.requestPermission();
+      setNotifPermission(result);
+    } catch (e) {
+      console.error("[notify] permission request failed", e);
+    }
+  }, []);
+
+  // Toggle the per-project bell. We optimistically flip the local state
+  // for instant feedback, then send to the server (which broadcasts the
+  // authoritative new payload back via SSE).
+  const handleToggleNotify = useCallback(
+    async (name: string, enabled: boolean) => {
+      setProjects((prev) =>
+        prev.map((p) => (p.name === name ? { ...p, notifyEnabled: enabled } : p)),
+      );
+      try {
+        await setNotifyEnabled(name, enabled);
+        // If the user just turned ON a project's bell but hasn't granted
+        // notification permission yet, prompt right now so they don't
+        // discover later that "enabled" did nothing.
+        if (
+          enabled &&
+          typeof Notification !== "undefined" &&
+          Notification.permission === "default"
+        ) {
+          handleEnableNotifications();
+        }
+      } catch (e) {
+        console.error("[notify] toggle failed", e);
+        // Roll back on error — server didn't accept the change.
+        setProjects((prev) =>
+          prev.map((p) =>
+            p.name === name ? { ...p, notifyEnabled: !enabled } : p,
+          ),
+        );
+        showToast("更新提醒设置失败", "error");
+      }
+    },
+    [handleEnableNotifications, showToast],
+  );
 
   // Footer clock
   useEffect(() => {
@@ -191,11 +312,41 @@ function AppInner() {
         onRemove={handleRemoveProject}
         onSettings={handleSettings}
         onAdd={handleAddProject}
+        onToggleNotify={handleToggleNotify}
         adding={adding}
       />
 
       {/* Main */}
       <div className="flex-1 min-w-0 max-w-[960px] px-7 py-6">
+        {/*
+          Permission banner: shown only when at least one project has the
+          bell ON but the browser hasn't been granted notification permission
+          yet. Hidden once granted/denied/unsupported. We deliberately don't
+          nag on first-load — only when there's actually something the user
+          opted into that won't work without permission.
+        */}
+        {notifPermission === "default" &&
+          projects.some((p) => p.notifyEnabled) && (
+            <div
+              className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded mb-4 text-[11px]"
+              style={{
+                background: "var(--color-accent-subtle)",
+                border: "1px solid var(--color-accent-border)",
+                color: "var(--color-text-primary)",
+              }}
+            >
+              <span>
+                💡 你为某些项目开启了对话完成提醒，但浏览器还没有通知权限
+              </span>
+              <button
+                className="btn-primary px-3 py-1 rounded text-[11px] font-medium cursor-pointer flex-shrink-0"
+                onClick={handleEnableNotifications}
+              >
+                启用通知
+              </button>
+            </div>
+          )}
+
         {/* Header */}
         <header className="flex items-center justify-between mb-6">
           <h1 className="text-[15px] font-semibold tracking-[-0.01em]">

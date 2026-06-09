@@ -4,9 +4,9 @@ import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync } from 'fs
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { dirname, resolve, join, extname } from 'path';
-import { listProjects, addProject, removeProject, setProjectClaudeDirs, CLAUDE_VARIANTS, getReportOutputPath, setReportOutputPath, getHiddenSessions, toggleHiddenSession } from '../lib/config.js';
+import { listProjects, addProject, removeProject, setProjectClaudeDirs, setProjectNotifyEnabled, CLAUDE_VARIANTS, getReportOutputPath, setReportOutputPath, getHiddenSessions, toggleHiddenSession } from '../lib/config.js';
 import { scanProject, isProjectActive, slugifyPath } from '../lib/scanner.js';
-import { parseSession, extractAllUserMessages, extractAssistantReplies, extractWorkFootprint, parseSessionMessages } from '../lib/parser.js';
+import { parseSession, extractAllUserMessages, extractAssistantReplies, extractWorkFootprint, parseSessionMessages, extractLatestTurn } from '../lib/parser.js';
 import { relativeTime } from '../lib/formatter.js';
 
 // ── Types ──────────────────────────────────────────────
@@ -36,6 +36,8 @@ interface ProjectItem {
   path: string;
   isActive: boolean;
   claudeDirs: string[];
+  /** Whether desktop notifications are enabled for this project */
+  notifyEnabled: boolean;
 }
 
 interface InitialPayload {
@@ -256,7 +258,9 @@ let activeHours = 6;
 
 /** Detect which Claude variant a session file belongs to from its path */
 function detectClaudeDir(filePath: string): string {
-  if (filePath.includes('/.claude-internal/')) return 'claude-internal';
+  // Normalize Windows backslashes so the check works on both platforms.
+  const normalized = filePath.replace(/\\/g, '/');
+  if (normalized.includes('/.claude-internal/')) return 'claude-internal';
   return 'claude';
 }
 
@@ -331,6 +335,7 @@ function collectProjects(): ProjectItem[] {
       path: p.path,
       isActive: isProjectActive(p.path, activeHours, claudeDirs),
       claudeDirs,
+      notifyEnabled: p.notifyEnabled === true,
     };
   });
 }
@@ -361,6 +366,100 @@ export function startDashboard(opts: { port?: string; hours?: string; apiOnly?: 
   // SSE client management
   const sseClients = new Set<ServerResponse>();
   let lastBroadcastJson = '';
+
+  // ── Turn-complete tracking (for browser notifications) ──
+  // Map from sessionId → uuid of the most recent turn we've notified about.
+  // We seed this on first scan ("baseline") so existing turns from before
+  // dashboard start don't fire a flood of notifications. Only NEW turn
+  // uuids appearing on subsequent scans trigger an event.
+  const lastSeenTurns = new Map<string, string>();
+  let baselineComplete = false;
+
+  interface TurnCompleteEvent {
+    type: 'turn-complete';
+    sessionId: string;
+    projectName: string;
+    projectPath: string;
+    claudeDir: string;
+    turnUuid: string;
+    preview: string;
+    timestamp?: string;
+  }
+
+  function pushSseEvent(event: TurnCompleteEvent) {
+    const json = JSON.stringify(event);
+    for (const client of sseClients) {
+      // Named SSE event so the browser can listen specifically via
+      // EventSource.addEventListener('turn-complete', ...).
+      client.write(`event: turn-complete\ndata: ${json}\n\n`);
+    }
+  }
+
+  /**
+   * Scan all tracked projects' session files for newly-completed turns.
+   * Called on every periodic broadcast and on initial connect (the
+   * initial pass establishes a baseline; subsequent passes diff against it).
+   *
+   * Notifications are deliberately keyed on the *assistant message uuid*,
+   * not file mtime — the file gets touched many times during a single turn
+   * (tool use → tool result → more tool use…) and we only want to fire
+   * once when stop_reason flips to "end_turn".
+   */
+  function scanForCompletedTurns() {
+    const projects = listProjects();
+    for (const proj of projects) {
+      const files = scanProject(proj.path, proj.claudeDirs);
+      for (const file of files) {
+        // Skip stale files — anything older than the activeHours window
+        // can't be "the user is currently in this conversation". Cheap guard
+        // against re-notifying when an old session file is touched by some
+        // unrelated tool.
+        if (Date.now() - file.mtime.getTime() > activeHours * 60 * 60 * 1000) {
+          continue;
+        }
+
+        let latest;
+        try {
+          latest = extractLatestTurn(file.path);
+        } catch {
+          continue;
+        }
+        if (!latest) continue;
+
+        // Build the session key the same way as elsewhere — sessionId
+        // comes from the .jsonl filename.
+        const sessionId = file.filename.replace('.jsonl', '');
+        const prev = lastSeenTurns.get(sessionId);
+
+        // Always update what we've seen so the next scan is incremental.
+        lastSeenTurns.set(sessionId, latest.turnUuid);
+
+        // Skip notifications during the very first pass — that pass
+        // establishes the baseline of "turns already there before we
+        // started watching". Without this, every existing assistant
+        // message in every active session would fire on dashboard launch.
+        if (!baselineComplete) continue;
+
+        // Already seen this turn? Or the new turn hasn't actually ended
+        // (still in tool-use loop)? Don't notify.
+        if (prev === latest.turnUuid) continue;
+        if (!latest.isComplete) continue;
+
+        const claudeDir = detectClaudeDir(file.path);
+        pushSseEvent({
+          type: 'turn-complete',
+          sessionId,
+          projectName: proj.name,
+          projectPath: proj.path,
+          claudeDir,
+          turnUuid: latest.turnUuid,
+          preview: latest.preview,
+          timestamp: latest.timestamp,
+        });
+      }
+    }
+    baselineComplete = true;
+  }
 
   function broadcast() {
     const payload = collectInitialPayload();
@@ -450,8 +549,25 @@ export function startDashboard(opts: { port?: string; hours?: string; apiOnly?: 
       if (platform === 'darwin') {
         cmd = `osascript -e 'POSIX path of (choose folder with prompt "选择要追踪的项目文件夹")'`;
       } else if (platform === 'win32') {
-        // PowerShell: .NET FolderBrowserDialog
-        cmd = `powershell -Command "Add-Type -AssemblyName System.Windows.Forms; $f=New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description='选择要追踪的项目文件夹'; if($f.ShowDialog() -eq 'OK'){$f.SelectedPath}"`;
+        // PowerShell: .NET FolderBrowserDialog.
+        // ShowDialog() without an owner sometimes opens BEHIND the browser
+        // window with no taskbar entry, so the user thinks "nothing happened".
+        // We work around this by creating a hidden TopMost form and passing
+        // it as the dialog's owner — the dialog inherits the topmost flag
+        // and is forced in front of all other windows.
+        cmd = [
+          'powershell -Command "',
+          'Add-Type -AssemblyName System.Windows.Forms;',
+          '$owner = New-Object System.Windows.Forms.Form;',
+          '$owner.TopMost = $true;',
+          '$owner.WindowState = \'Minimized\';',
+          '$owner.ShowInTaskbar = $false;',
+          '$owner.Show();',
+          '$f = New-Object System.Windows.Forms.FolderBrowserDialog;',
+          '$f.Description = \'选择要追踪的项目文件夹\';',
+          'if ($f.ShowDialog($owner) -eq \'OK\') { $f.SelectedPath };',
+          '$owner.Close()"',
+        ].join(' ');
       } else {
         // Linux: try zenity first, fall back to kdialog
         cmd = `if command -v zenity >/dev/null 2>&1; then zenity --file-selection --directory --title='选择要追踪的项目文件夹' 2>/dev/null; elif command -v kdialog >/dev/null 2>&1; then kdialog --getexistingdirectory 2>/dev/null; else echo ''; fi`;
@@ -491,6 +607,37 @@ export function startDashboard(opts: { port?: string; hours?: string; apiOnly?: 
         }
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ name: updated.name, path: updated.path, claudeDirs: updated.claudeDirs }));
+        broadcast();
+      } catch (e: any) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+
+    // PUT /api/projects/:name/notify — toggle desktop notification on this project.
+    // Body: { enabled: boolean }. We re-broadcast the full payload so the
+    // sidebar bell icon updates everywhere instantly.
+    if (url.startsWith('/api/projects/') && url.endsWith('/notify') && method === 'PUT') {
+      const name = decodeURIComponent(
+        url.replace('/api/projects/', '').replace('/notify', ''),
+      );
+      const body = await readBody(req);
+      try {
+        const { enabled } = JSON.parse(body);
+        if (typeof enabled !== 'boolean') {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: '缺少 enabled (boolean) 参数' }));
+          return;
+        }
+        const updated = setProjectNotifyEnabled(name, enabled);
+        if (!updated) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: '未找到项目: ' + name }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ name: updated.name, notifyEnabled: !!updated.notifyEnabled }));
         broadcast();
       } catch (e: any) {
         res.writeHead(400);
@@ -681,12 +828,21 @@ export function startDashboard(opts: { port?: string; hours?: string; apiOnly?: 
     res.end(JSON.stringify({ ok: true, mode: 'api-only' }));
   });
 
-  // Periodic scan: broadcast to all SSE clients every 5 seconds
+  // Periodic scan: broadcast to all SSE clients every 5 seconds.
+  // Also scans for newly-completed turns to push notification events.
+  // Note: turn detection runs even with zero clients so the baseline of
+  // "what's already there" stays current — without this, opening the
+  // dashboard mid-day would replay every turn that happened since launch.
   const scanTimer = setInterval(() => {
+    scanForCompletedTurns();
     if (sseClients.size > 0) {
       broadcast();
     }
   }, 5000);
+
+  // Establish the turn baseline at startup so we don't notify about
+  // pre-existing assistant messages when the dashboard first opens.
+  scanForCompletedTurns();
 
   // Port retry: if port is in use, try next one (up to 10 attempts)
   let actualPort = port;

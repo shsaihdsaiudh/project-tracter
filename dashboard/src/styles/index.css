@@ -39,6 +39,12 @@
 }
 
 /* Base */
+/* The dashboard's components hardcode pixel sizes via Tailwind arbitrary
+   values like `text-[9px]` / `text-[11px]`, which are immune to root
+   font-size changes. Using `zoom` on body scales the entire rendered UI
+   uniformly — text, padding, borders, icons — preserving every layout
+   relationship. Bump this single value to scale up/down. */
+body { zoom: 1.2; }
 body {
   font-family: var(--font-sans);
   background: var(--color-bg-page);

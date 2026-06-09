@@ -49,6 +49,22 @@ export async function updateClaudeDirs(
   if (!res.ok) throw new Error(`PUT /api/projects/.../claude-dirs: ${res.status}`);
 }
 
+/** Toggle the per-project desktop-notification flag. */
+export async function setNotifyEnabled(
+  name: string,
+  enabled: boolean,
+): Promise<void> {
+  const res = await fetch(
+    `${BASE}/projects/${encodeURIComponent(name)}/notify`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    },
+  );
+  if (!res.ok) throw new Error(`PUT /api/projects/.../notify: ${res.status}`);
+}
+
 export async function fetchReportConfig(): Promise<ReportConfig> {
   const res = await fetch(`${BASE}/report-config`);
   if (!res.ok) throw new Error(`/api/report-config: ${res.status}`);
@@ -104,8 +120,26 @@ export async function fetchSessionDetail(
   return res.json();
 }
 
-/** SSE subscription — calls onData on each event, auto-reconnects on error */
-export function subscribeSSE(onData: (payload: InitialPayload) => void): () => void {
+/** Notification event pushed when an assistant turn finishes (stop_reason=end_turn) */
+export interface TurnCompleteEvent {
+  type: "turn-complete";
+  sessionId: string;
+  projectName: string;
+  projectPath: string;
+  claudeDir: string;
+  turnUuid: string;
+  preview: string;
+  timestamp?: string;
+}
+
+/**
+ * SSE subscription — calls onData on each unnamed payload event,
+ * onTurnComplete on each named "turn-complete" event. Auto-reconnects.
+ */
+export function subscribeSSE(
+  onData: (payload: InitialPayload) => void,
+  onTurnComplete?: (event: TurnCompleteEvent) => void,
+): () => void {
   let es: EventSource | null = null;
   let stopped = false;
 
@@ -116,6 +150,16 @@ export function subscribeSSE(onData: (payload: InitialPayload) => void): () => v
       const data = JSON.parse(event.data) as InitialPayload;
       onData(data);
     };
+    if (onTurnComplete) {
+      es.addEventListener("turn-complete", (event: MessageEvent) => {
+        try {
+          const parsed = JSON.parse(event.data) as TurnCompleteEvent;
+          onTurnComplete(parsed);
+        } catch (e) {
+          console.error("[sse] failed to parse turn-complete event", e);
+        }
+      });
+    }
     es.onerror = () => {
       es?.close();
       if (!stopped) setTimeout(connect, 3000);

@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { addProject } from '../lib/config.js';
 import { existsSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, basename } from 'path';
 
 export function addCommand(projectPath: string): void {
   const resolved = resolve(projectPath);
@@ -11,7 +11,7 @@ export function addCommand(projectPath: string): void {
     process.exit(1);
   }
 
-  const folderName = resolved.split('/').pop() || resolved;
+  const folderName = basename(resolved);
   const entry = addProject(resolved, folderName);
 
   console.log(

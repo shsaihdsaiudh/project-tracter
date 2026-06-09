@@ -39,6 +39,24 @@ export function SessionDetail({ sessionId, projectName, claudeDir, onClose }: Pr
     };
   }, [sessionId, projectName, claudeDir]);
 
+  // After data loads, jump straight to the bottom — the user opens a
+  // session detail to see "where I left off", not to re-read the whole
+  // conversation from message #1. Same UX as IM apps (WeChat / iMessage):
+  // newest message in the natural reading position. Use a microtask so the
+  // DOM has rendered and the container has its final scrollHeight.
+  useEffect(() => {
+    if (!data || loading) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    // Two RAFs: first paints the messages, second runs after layout so
+    // scrollHeight reflects the rendered content.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight;
+      });
+    });
+  }, [data, loading]);
+
   // 提取所有用户消息的索引，用于侧边导航
   const userMessageIndices = useMemo(() => {
     if (!data) return [];

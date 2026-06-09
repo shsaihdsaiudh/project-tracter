@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+import { basename } from 'path';
 
 // ── Session Summary (existing) ──────────────────────────
 
@@ -86,7 +87,10 @@ export function parseSession(filePath: string): SessionSummary | null {
   }
 
   // Extract session ID from filename
-  const filename = filePath.split('/').pop() || filePath;
+  // Use path.basename — split('/') only works on POSIX paths, but on
+  // Windows the path uses '\' so the original split returned the entire
+  // path as "filename", producing a corrupt sessionId.
+  const filename = basename(filePath);
   const sessionId = filename.replace('.jsonl', '');
 
   // Take last 3 user messages to give richer context
@@ -234,8 +238,9 @@ export function extractWorkFootprint(filePath: string): { files: string[]; actio
           const input = block.input || {};
           const paths = input.file_path || input.filePath || input.path || input.target_directory || '';
           if (typeof paths === 'string' && paths.length > 0) {
-            // Take just the filename from absolute paths to keep it concise
-            const parts = paths.split('/');
+            // Take just the filename from absolute paths to keep it concise.
+            // Split on both / and \ so paths recorded on either OS work.
+            const parts = paths.split(/[/\\]/);
             files.add(parts[parts.length - 1]);
           }
         }
@@ -256,6 +261,79 @@ export interface ChatMessage {
   content: string;
   timestamp?: string;
   toolUses?: { name: string; summary: string }[];
+}
+
+// ── Turn-complete detection (for notifications) ─────────
+
+export interface LatestTurn {
+  /** uuid of the most recent assistant message in the file */
+  turnUuid: string;
+  /**
+   * true when that message ends the turn (Claude is done talking and
+   * waiting for the user). Drives notification firing.
+   *
+   * Detected via the message's `stop_reason`:
+   *   "end_turn"     → done, waiting for user (notify)
+   *   "tool_use"     → still working, will be followed by tool result + more (skip)
+   *   anything else  → treated as "still working" to be safe
+   */
+  isComplete: boolean;
+  /** First chars of the assistant's text content, for the notification body. */
+  preview: string;
+  /** ISO timestamp of the assistant message, used for "is this fresh?" checks. */
+  timestamp?: string;
+}
+
+/**
+ * Read a JSONL session file and return info about the most recent
+ * assistant message. Used to detect "AI just finished a turn" so we can
+ * fire a notification — see dashboard.ts.
+ *
+ * Returns null if the file has no assistant messages yet (e.g. session
+ * just opened, user typed something but Claude hasn't replied yet).
+ */
+export function extractLatestTurn(filePath: string): LatestTurn | null {
+  const raw = readFileSync(filePath, 'utf-8');
+  const lines = raw.split('\n');
+
+  // Walk backwards — the latest assistant message is almost always near
+  // the end, no need to parse the whole file.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) continue;
+
+    let obj: any;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    if (obj.type !== 'assistant') continue;
+    if (!obj.uuid) continue;
+
+    const stopReason: string | undefined = obj.message?.stop_reason;
+    const isComplete = stopReason === 'end_turn';
+
+    // Build a short text preview from the assistant's text blocks.
+    // Skips thinking blocks (internal reasoning) and tool_use blocks.
+    let preview = '';
+    if (Array.isArray(obj.message?.content)) {
+      const texts = obj.message.content
+        .filter((c: any) => c.type === 'text' && typeof c.text === 'string')
+        .map((c: any) => c.text);
+      preview = texts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+    }
+
+    return {
+      turnUuid: obj.uuid,
+      isComplete,
+      preview,
+      timestamp: typeof obj.timestamp === 'string' ? obj.timestamp : undefined,
+    };
+  }
+
+  return null;
 }
 
 export interface SessionFull {
@@ -345,8 +423,8 @@ export function parseSessionMessages(filePath: string): SessionFull {
     }
   }
 
-  // Extract session ID from filename
-  const filename = filePath.split('/').pop() || filePath;
+  // Extract session ID from filename (cross-platform — see parseSession above)
+  const filename = basename(filePath);
   const sessionId = filename.replace('.jsonl', '');
 
   return {
@@ -382,7 +460,8 @@ function extractTextContent(content: any): string {
  */
 function toolUseSummary(toolName: string, input: Record<string, any>): string {
   const path = input.file_path || input.filePath || input.path || '';
-  const fileName = path ? path.split('/').pop() || path : '';
+  // Split on both POSIX and Windows separators (paths inside JSONL may be either)
+  const fileName = path ? path.split(/[/\\]/).pop() || path : '';
 
   switch (toolName) {
     case 'Read':

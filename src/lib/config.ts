@@ -1,6 +1,6 @@
 import { homedir } from 'os';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, basename } from 'path';
 
 /**
  * Supported Claude variants and their home directory prefixes.
@@ -71,6 +71,12 @@ export interface ProjectEntry {
   addedAt: string;
   /** Which Claude variants to scan for this project. Default: ["claude"] */
   claudeDirs?: string[];
+  /**
+   * Whether the dashboard should fire a desktop notification when an
+   * assistant turn completes for any session under this project.
+   * Default: false (opt-in per project).
+   */
+  notifyEnabled?: boolean;
 }
 
 export interface TrackerConfig {
@@ -138,7 +144,7 @@ export function addProject(
     return existing;
   }
 
-  const folderName = name || resolvedPath.split('/').pop() || resolvedPath;
+  const folderName = name || basename(resolvedPath);
   const validDirs = (claudeDirs && claudeDirs.length > 0)
     ? claudeDirs.filter((d) => d in CLAUDE_VARIANTS)
     : [...DEFAULT_CLAUDE_DIRS];
@@ -215,6 +221,24 @@ export function setReportOutputPath(path: string): void {
   const config = readConfig();
   config.reportOutputPath = path;
   writeConfig(config);
+}
+
+/**
+ * Toggle whether a project fires desktop notifications on assistant
+ * turn completion. Returns the new state, or null if project not found.
+ */
+export function setProjectNotifyEnabled(
+  nameOrPath: string,
+  enabled: boolean,
+): ProjectEntry | null {
+  const config = readConfig();
+  const project = config.projects.find(
+    (p) => p.name === nameOrPath || p.path === nameOrPath,
+  );
+  if (!project) return null;
+  project.notifyEnabled = enabled;
+  writeConfig(config);
+  return project;
 }
 
 /**

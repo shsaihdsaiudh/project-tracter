@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "tsx --version",
+    "build": "cd dashboard && npm install && npm run build",
+    "postinstall": "cd dashboard && npm install && npm run build",
     "test": "echo \"No tests yet\" && exit 0"
   },
   "keywords": ["cli", "productivity", "project-management"],
@@ -18,7 +19,7 @@
     "tsx": "^4.22.4"
   },
   "bin": {
-    "pt": "./src/index.ts"
+    "pt": "./bin/pt.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.1"

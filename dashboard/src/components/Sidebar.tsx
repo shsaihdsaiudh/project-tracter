@@ -6,6 +6,7 @@ interface Props {
   onRemove: (name: string) => void;
   onSettings: (name: string, anchor: HTMLElement) => void;
   onAdd: () => void;
+  onToggleNotify: (name: string, enabled: boolean) => void;
   adding: boolean;
 }
 
@@ -15,6 +16,7 @@ export function Sidebar({
   onRemove,
   onSettings,
   onAdd,
+  onToggleNotify,
   adding,
 }: Props) {
   return (
@@ -83,6 +85,43 @@ export function Sidebar({
                   <span className="flex-1 truncate" title={p.path}>
                     {p.name}
                   </span>
+                  {/*
+                    Notification toggle. Always visible when ON (so the
+                    user can see at a glance which projects ping them);
+                    fades to nearly invisible when OFF and only fully
+                    appears on hover, mirroring the gear/× pattern used
+                    elsewhere in this row.
+                  */}
+                  <button
+                    className="w-5 h-5 flex items-center justify-center border-none bg-transparent rounded-sm cursor-pointer text-[12px] flex-shrink-0 transition-all"
+                    style={{
+                      color: p.notifyEnabled
+                        ? "var(--color-accent)"
+                        : "var(--color-text-dim)",
+                      opacity: p.notifyEnabled ? 1 : 0.25,
+                    }}
+                    title={
+                      p.notifyEnabled
+                        ? "已开启提醒 — 点击关闭"
+                        : "点击开启对话完成提醒"
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleNotify(p.name, !p.notifyEnabled);
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!p.notifyEnabled) {
+                        e.currentTarget.style.opacity = "1";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!p.notifyEnabled) {
+                        e.currentTarget.style.opacity = "0.25";
+                      }
+                    }}
+                  >
+                    {p.notifyEnabled ? "\u{1F514}" : "\u{1F515}"}
+                  </button>
                   <button
                     className="w-5 h-5 flex items-center justify-center border-none bg-transparent rounded-sm cursor-pointer text-[11px] opacity-0 transition-all flex-shrink-0 sidebar-item-hover:opacity-100"
                     style={{ color: "var(--color-text-dim)" }}

@@ -7,12 +7,23 @@ import { CLAUDE_VARIANTS, DEFAULT_CLAUDE_DIRS, type ProjectEntry } from './confi
  * Convert a project path to the slugified directory name
  * used by Claude Code inside ~/.claude/projects/
  *
- * Example:
+ * Examples (macOS/Linux):
  *   /Users/yangyeyuan/Desktop/project-tracker
  *   -> -Users-yangyeyuan-Desktop-project-tracker
+ *
+ * Examples (Windows):
+ *   C:\Users\yang\Desktop\project-tracker
+ *   -> C--Users-yang-Desktop-project-tracker
+ *   (Claude Code on Windows replaces both `:` and `\` with `-`,
+ *    producing a leading "C-" that absorbs the colon and yields
+ *    the doubled "--" before the first path segment.)
  */
 export function slugifyPath(projectPath: string): string {
-  return projectPath.replace(/\//g, '-');
+  // Replace both / (POSIX) and \ (Windows) plus the drive-letter colon.
+  // Order matters: handle ':' first so 'C:\Users' becomes 'C-\Users'
+  // before we collapse '\' into '-', yielding 'C--Users-...' which is
+  // exactly what Claude Code creates on Windows.
+  return projectPath.replace(/:/g, '-').replace(/[/\\]/g, '-');
 }
 
 export interface JsonlFile {
